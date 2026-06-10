@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from dataclasses import dataclass
 
 import discord
 from discord.ext import commands
+
+log = logging.getLogger("pokebot")
 
 from config import settings
 from bot.data.moves import MOVES, Move, get_move
@@ -568,15 +571,22 @@ class Battle(commands.Cog, name="Batalha"):
         await view.start()
         return view
 
+    @staticmethod
+    def _can_make_arena(guild) -> bool:
+        # canal privado exige criar o canal (manage_channels) E aplicar
+        # permissões customizadas (manage_roles). Administrator cobre os dois.
+        p = guild.me.guild_permissions
+        return p.administrator or (p.manage_channels and p.manage_roles)
+
     async def _create_arena(self, ctx, a: discord.Member, b: discord.Member):
         """Cria um canal de batalha privado (só os dois + bot). None se não puder."""
-        me = ctx.guild.me
-        if not me.guild_permissions.manage_channels:
+        if not self._can_make_arena(ctx.guild):
             return None
+        me = ctx.guild.me
         overwrites = {
             ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             me: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, embed_links=True, manage_channels=True),
+                view_channel=True, send_messages=True, embed_links=True, read_message_history=True),
             a: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
             b: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
         }
@@ -587,7 +597,8 @@ class Battle(commands.Cog, name="Batalha"):
                 topic=f"Batalha PvP entre {a.display_name} e {b.display_name}",
                 reason="Arena de batalha PvP (temporária)",
             )
-        except discord.HTTPException:
+        except discord.HTTPException as exc:
+            log.warning("Falha ao criar arena PvP no servidor %s: %s", ctx.guild.id, exc)
             return None
 
     # ------------------------------------------------------------------
@@ -643,9 +654,8 @@ class Battle(commands.Cog, name="Batalha"):
             await ctx.send(embed=embeds.info_text("Desafio recusado ou expirado. 🙅"))
             return
 
-        # cria uma arena privada (precisa da permissão 'Gerenciar Canais')
-        can_arena = ctx.guild.me.guild_permissions.manage_channels
-        arena = await self._create_arena(ctx, ctx.author, oponente) if can_arena else None
+        # cria uma arena privada (precisa de 'Gerenciar Canais' + 'Gerenciar Cargos')
+        arena = await self._create_arena(ctx, ctx.author, oponente)
 
         if arena is not None:
             # posta a batalha (com o menu) já na arena
@@ -666,11 +676,11 @@ class Battle(commands.Cog, name="Batalha"):
                     "Cliquem no botão abaixo para entrar!\n*(o canal é apagado 10s após o fim)*"),
                 view=link_view)
         else:
-            if not can_arena:
-                await ctx.send(embed=embeds.info_text(
-                    "⚠️ Para criar **arenas privadas**, me dê a permissão **Gerenciar Canais** "
-                    "(Config. do Servidor → Cargos → **PokeM1D**). Por enquanto, a batalha rola aqui mesmo.",
-                    title="Arena indisponível"))
+            await ctx.send(embed=embeds.info_text(
+                "⚠️ Para criar **arenas privadas**, preciso das permissões **Gerenciar Canais** "
+                "e **Gerenciar Cargos** no cargo do bot (Config. do Servidor → Cargos → **PokeM1D**).\n"
+                "Por enquanto, a batalha rola aqui mesmo.",
+                title="Arena indisponível"))
             await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, oponente.id)
 
     # ------------------------------------------------------------------
