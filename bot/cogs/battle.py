@@ -643,17 +643,34 @@ class Battle(commands.Cog, name="Batalha"):
             await ctx.send(embed=embeds.info_text("Desafio recusado ou expirado. 🙅"))
             return
 
-        # cria uma arena privada (se o bot tiver permissão); senão, luta no canal atual
-        arena = await self._create_arena(ctx, ctx.author, oponente)
+        # cria uma arena privada (precisa da permissão 'Gerenciar Canais')
+        can_arena = ctx.guild.me.guild_permissions.manage_channels
+        arena = await self._create_arena(ctx, ctx.author, oponente) if can_arena else None
+
         if arena is not None:
-            await ctx.send(embed=embeds.ok_embed(
-                "Arena criada! ⚔️",
-                f"{ctx.author.mention} vs {oponente.mention} — a batalha é em {arena.mention} "
-                f"(só vocês dois). O canal some 10s após o fim.",
-            ))
-            await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, oponente.id,
-                                     battle_channel=arena, temp_channel=arena)
+            # posta a batalha (com o menu) já na arena
+            view = await self.launch_battle(
+                ctx, p1_team, p2_team, ctx.author.id, oponente.id,
+                battle_channel=arena, temp_channel=arena)
+            # botão-link no canal original que leva direto à batalha
+            url = (view.message.jump_url if view.message
+                   else f"https://discord.com/channels/{ctx.guild.id}/{arena.id}")
+            link_view = discord.ui.View(timeout=None)
+            link_view.add_item(discord.ui.Button(
+                label="Ir para a Arena", emoji="⚔️", style=discord.ButtonStyle.link, url=url))
+            await ctx.send(
+                content=f"{ctx.author.mention} ⚔️ {oponente.mention}",
+                embed=embeds.ok_embed(
+                    "Arena criada!",
+                    "A batalha de vocês já está montada na **arena privada**. "
+                    "Cliquem no botão abaixo para entrar!\n*(o canal é apagado 10s após o fim)*"),
+                view=link_view)
         else:
+            if not can_arena:
+                await ctx.send(embed=embeds.info_text(
+                    "⚠️ Para criar **arenas privadas**, me dê a permissão **Gerenciar Canais** "
+                    "(Config. do Servidor → Cargos → **PokeM1D**). Por enquanto, a batalha rola aqui mesmo.",
+                    title="Arena indisponível"))
             await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, oponente.id)
 
     # ------------------------------------------------------------------
