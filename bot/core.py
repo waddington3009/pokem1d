@@ -17,10 +17,10 @@ ALWAYS_ALLOWED = {"help", "ping", "botinfo"}
 
 
 class WrongChannel(commands.CheckFailure):
-    """Comando usado fora do canal de jogo definido."""
+    """Comando usado fora dos canais de jogo definidos."""
 
-    def __init__(self, channel_id: int) -> None:
-        self.channel_id = channel_id
+    def __init__(self, channel_ids: list[int]) -> None:
+        self.channel_ids = channel_ids
         super().__init__("Comando usado no canal errado.")
 
 
@@ -68,9 +68,9 @@ class PokeBot(commands.Bot):
         )
         # cache de prefixos por servidor (evita hit no DB a cada mensagem)
         self.prefix_cache: dict[int, str] = {}
-        # cache do canal de jogo por servidor (int = travado nesse canal; None = livre)
-        self.game_channel_cache: dict[int, int | None] = {}
-        # verificação global: trava comandos fora do canal de jogo
+        # cache dos canais de jogo por servidor (lista vazia = liberado em qualquer canal)
+        self.game_channels_cache: dict[int, list[int]] = {}
+        # verificação global: trava comandos fora dos canais de jogo
         self.add_check(self._channel_lock_check)
 
     async def setup_hook(self) -> None:
@@ -92,16 +92,24 @@ class PokeBot(commands.Bot):
     def update_prefix_cache(self, guild_id: int, prefix: str) -> None:
         self.prefix_cache[guild_id] = prefix
 
-    # ---- Trava de canal de jogo ----
-    async def get_game_channel(self, guild_id: int) -> int | None:
-        if guild_id not in self.game_channel_cache:
+    # ---- Trava de canais de jogo ----
+    @staticmethod
+    def _merge_channels(guild) -> list[int]:
+        """Lista de canais de jogo (mescla o campo novo com o legado)."""
+        channels = list(guild.game_channels or [])
+        if not channels and guild.game_channel_id:
+            channels = [guild.game_channel_id]
+        return channels
+
+    async def get_game_channels(self, guild_id: int) -> list[int]:
+        if guild_id not in self.game_channels_cache:
             async with session_scope() as session:
                 guild = await get_or_create_guild(session, guild_id)
-                self.game_channel_cache[guild_id] = guild.game_channel_id
-        return self.game_channel_cache[guild_id]
+                self.game_channels_cache[guild_id] = self._merge_channels(guild)
+        return self.game_channels_cache[guild_id]
 
-    def set_game_channel_cache(self, guild_id: int, channel_id: int | None) -> None:
-        self.game_channel_cache[guild_id] = channel_id
+    def set_game_channels_cache(self, guild_id: int, channels: list[int]) -> None:
+        self.game_channels_cache[guild_id] = list(channels)
 
     async def _channel_lock_check(self, ctx: commands.Context) -> bool:
         # DMs e comandos de admin/utilitários passam em qualquer lugar
@@ -111,10 +119,10 @@ class PokeBot(commands.Bot):
             return True
         if ctx.command and ctx.command.qualified_name in ALWAYS_ALLOWED:
             return True
-        locked = await self.get_game_channel(ctx.guild.id)
-        if locked is None or ctx.channel.id == locked:
+        channels = await self.get_game_channels(ctx.guild.id)
+        if not channels or ctx.channel.id in channels:
             return True
-        raise WrongChannel(locked)
+        raise WrongChannel(channels)
 
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:
         # Trata os erros mais comuns de forma amigável; loga o resto.
@@ -126,8 +134,9 @@ class PokeBot(commands.Bot):
         if isinstance(error, commands.CommandNotFound):
             return
         if isinstance(error, WrongChannel):
+            canais = ", ".join(f"<#{c}>" for c in error.channel_ids)
             await ctx.send(
-                f"🚫 Os comandos do bot só funcionam em <#{error.channel_id}>.",
+                f"🚫 Os comandos do bot só funcionam em: {canais}.",
                 delete_after=8,
             )
             return

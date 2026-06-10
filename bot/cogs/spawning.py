@@ -78,18 +78,25 @@ class Spawning(commands.Cog, name="Spawn"):
             enabled = cfg.spawns_enabled
             redirect_id = cfg.redirect_channel_id
             blacklist = set(cfg.blacklist or [])
+            game_channels = self.bot._merge_channels(cfg)
 
         if not enabled:
             return
 
-        # canal de destino: redirecionamento tem prioridade
-        target = message.channel
-        if redirect_id:
-            ch = guild.get_channel(redirect_id)
-            if ch is not None:
-                target = ch
-        if target.id in blacklist:
-            return
+        if game_channels:
+            # com canais de jogo definidos: spawna no canal de atividade, se for um deles
+            if message.channel.id not in game_channels:
+                return
+            target = message.channel
+        else:
+            # modo livre: redirecionamento tem prioridade, respeita a blacklist
+            target = message.channel
+            if redirect_id:
+                ch = guild.get_channel(redirect_id)
+                if ch is not None:
+                    target = ch
+            if target.id in blacklist:
+                return
         # só spawna onde o bot pode enviar mensagem + embed (evita 403)
         me = target.guild.me
         if me is not None:

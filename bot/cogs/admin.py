@@ -28,7 +28,8 @@ class Admin(commands.Cog, name="Administração"):
             guild = await get_or_create_guild(session, ctx.guild.id)
             prefix = guild.prefix or settings.default_prefix
             redirect = f"<#{guild.redirect_channel_id}>" if guild.redirect_channel_id else "—"
-            game_ch = f"<#{guild.game_channel_id}>" if guild.game_channel_id else "— (qualquer canal)"
+            channels = self.bot._merge_channels(guild)
+            game_ch = ", ".join(f"<#{c}>" for c in channels) if channels else "— (qualquer canal)"
             blacklist = ", ".join(f"<#{c}>" for c in guild.blacklist) or "—"
             enabled = "✅ Ativados" if guild.spawns_enabled else "🚫 Desativados"
             lang = guild.language
@@ -37,7 +38,7 @@ class Admin(commands.Cog, name="Administração"):
         embed.add_field(name="Prefixo", value=f"`{prefix}`", inline=True)
         embed.add_field(name="Idioma", value=lang, inline=True)
         embed.add_field(name="Spawns", value=enabled, inline=True)
-        embed.add_field(name="Canal de comandos", value=game_ch, inline=False)
+        embed.add_field(name="Canais de jogo", value=game_ch, inline=False)
         embed.add_field(name="Canal de redirecionamento", value=redirect, inline=False)
         embed.add_field(name="Canais bloqueados", value=blacklist, inline=False)
         embed.set_footer(text=f"Use {prefix}help Administração para ver os comandos.")
@@ -82,36 +83,55 @@ class Admin(commands.Cog, name="Administração"):
             "Redirecionamento removido", "Os pokémon podem aparecer em qualquer canal liberado."
         ))
 
-    @commands.command(name="setchannel", aliases=["canal", "gamechannel", "travarcanal"])
+    @commands.command(name="setchannel", aliases=["addchannel", "canal", "gamechannel"])
     @commands.has_guild_permissions(manage_guild=True)
     async def setchannel(self, ctx: commands.Context,
                          canal: discord.TextChannel | None = None) -> None:
-        """Trava os comandos do bot (e os spawns) em um único canal."""
+        """Adiciona um canal onde o bot opera (comandos + spawns). Pode ter vários."""
         canal = canal or ctx.channel
         async with session_scope() as session:
             guild = await get_or_create_guild(session, ctx.guild.id)
-            guild.game_channel_id = canal.id
-            guild.redirect_channel_id = canal.id  # spawns também só aqui
-        self.bot.set_game_channel_cache(ctx.guild.id, canal.id)
+            channels = self.bot._merge_channels(guild)
+            if canal.id in channels:
+                await ctx.send(embed=embeds.err_embed(f"{canal.mention} já é um canal de jogo."))
+                return
+            channels.append(canal.id)
+            guild.game_channels = channels
+            guild.game_channel_id = None       # migra o campo legado para a lista
+            guild.redirect_channel_id = None    # spawns agora seguem a lista de canais
+        self.bot.set_game_channels_cache(ctx.guild.id, channels)
+        lista = ", ".join(f"<#{c}>" for c in channels)
         await ctx.send(embed=embeds.ok_embed(
-            "Canal de jogo definido",
-            f"🎮 Agora os comandos e os spawns só funcionam em {canal.mention}.\n"
-            f"Para liberar de novo, use `{ctx.prefix}unsetchannel`.",
+            "Canal adicionado! 🎮",
+            f"O bot agora opera em **{len(channels)}** canal(is): {lista}\n"
+            f"Para remover um, use `{ctx.prefix}unsetchannel #canal`.",
         ))
 
-    @commands.command(name="unsetchannel", aliases=["destravarcanal", "freechannel"])
+    @commands.command(name="unsetchannel", aliases=["delchannel", "destravarcanal"])
     @commands.has_guild_permissions(manage_guild=True)
-    async def unsetchannel(self, ctx: commands.Context) -> None:
-        """Remove a trava de canal — comandos voltam a funcionar em qualquer canal."""
+    async def unsetchannel(self, ctx: commands.Context,
+                           canal: discord.TextChannel | None = None) -> None:
+        """Remove um canal de jogo. Sem #canal = libera o bot em qualquer canal."""
         async with session_scope() as session:
             guild = await get_or_create_guild(session, ctx.guild.id)
+            channels = self.bot._merge_channels(guild)
+            if canal is None:
+                channels = []
+                msg = "Trava removida — o bot opera em **qualquer** canal de novo."
+            else:
+                if canal.id not in channels:
+                    await ctx.send(embed=embeds.err_embed(f"{canal.mention} não é um canal de jogo."))
+                    return
+                channels = [c for c in channels if c != canal.id]
+                if channels:
+                    lista = ", ".join(f"<#{c}>" for c in channels)
+                    msg = f"{canal.mention} removido. Canais ativos: {lista}"
+                else:
+                    msg = f"{canal.mention} removido. Sem canais definidos → o bot opera em **qualquer** canal."
+            guild.game_channels = channels
             guild.game_channel_id = None
-        self.bot.set_game_channel_cache(ctx.guild.id, None)
-        await ctx.send(embed=embeds.ok_embed(
-            "Trava removida",
-            "Os comandos voltaram a funcionar em qualquer canal. "
-            "(O redirecionamento de spawns continua como estava — use `unredirect` se quiser soltar.)",
-        ))
+        self.bot.set_game_channels_cache(ctx.guild.id, channels)
+        await ctx.send(embed=embeds.ok_embed("Canais de jogo atualizados", msg))
 
     @commands.command(name="togglespawns")
     @commands.has_guild_permissions(manage_guild=True)
