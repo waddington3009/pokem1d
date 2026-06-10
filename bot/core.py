@@ -12,6 +12,18 @@ from bot.database.db import get_or_create_guild, init_db, session_scope
 
 log = logging.getLogger("pokebot")
 
+# Comandos utilitários liberados em qualquer canal (mesmo com trava de canal ativa)
+ALWAYS_ALLOWED = {"help", "ping", "botinfo"}
+
+
+class WrongChannel(commands.CheckFailure):
+    """Comando usado fora do canal de jogo definido."""
+
+    def __init__(self, channel_id: int) -> None:
+        self.channel_id = channel_id
+        super().__init__("Comando usado no canal errado.")
+
+
 EXTENSIONS = [
     "bot.cogs.admin",
     "bot.cogs.spawning",
@@ -56,6 +68,10 @@ class PokeBot(commands.Bot):
         )
         # cache de prefixos por servidor (evita hit no DB a cada mensagem)
         self.prefix_cache: dict[int, str] = {}
+        # cache do canal de jogo por servidor (int = travado nesse canal; None = livre)
+        self.game_channel_cache: dict[int, int | None] = {}
+        # verificação global: trava comandos fora do canal de jogo
+        self.add_check(self._channel_lock_check)
 
     async def setup_hook(self) -> None:
         POKEDEX.load()
@@ -76,6 +92,30 @@ class PokeBot(commands.Bot):
     def update_prefix_cache(self, guild_id: int, prefix: str) -> None:
         self.prefix_cache[guild_id] = prefix
 
+    # ---- Trava de canal de jogo ----
+    async def get_game_channel(self, guild_id: int) -> int | None:
+        if guild_id not in self.game_channel_cache:
+            async with session_scope() as session:
+                guild = await get_or_create_guild(session, guild_id)
+                self.game_channel_cache[guild_id] = guild.game_channel_id
+        return self.game_channel_cache[guild_id]
+
+    def set_game_channel_cache(self, guild_id: int, channel_id: int | None) -> None:
+        self.game_channel_cache[guild_id] = channel_id
+
+    async def _channel_lock_check(self, ctx: commands.Context) -> bool:
+        # DMs e comandos de admin/utilitários passam em qualquer lugar
+        if ctx.guild is None:
+            return True
+        if ctx.cog and ctx.cog.qualified_name == "Administração":
+            return True
+        if ctx.command and ctx.command.qualified_name in ALWAYS_ALLOWED:
+            return True
+        locked = await self.get_game_channel(ctx.guild.id)
+        if locked is None or ctx.channel.id == locked:
+            return True
+        raise WrongChannel(locked)
+
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:
         # Trata os erros mais comuns de forma amigável; loga o resto.
         # Se o comando/cog tem handler próprio, não duplica a resposta.
@@ -84,6 +124,12 @@ class PokeBot(commands.Bot):
         if ctx.cog and ctx.cog.has_error_handler():
             return
         if isinstance(error, commands.CommandNotFound):
+            return
+        if isinstance(error, WrongChannel):
+            await ctx.send(
+                f"🚫 Os comandos do bot só funcionam em <#{error.channel_id}>.",
+                delete_after=8,
+            )
             return
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send(f"⚠️ Faltou um argumento: `{error.param.name}`. "

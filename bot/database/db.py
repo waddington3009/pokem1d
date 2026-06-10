@@ -4,7 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -14,6 +14,28 @@ from sqlalchemy.ext.asyncio import (
 from config import settings
 
 from .models import Base, Guild, User
+
+
+def _auto_migrate(conn) -> None:
+    """Adiciona colunas que existem nos modelos mas não na tabela do banco.
+
+    Roda sobre uma conexão síncrona (via run_sync). Idempotente: só adiciona
+    o que falta, como coluna anulável (seguro p/ tabelas com dados). Funciona
+    em PostgreSQL e SQLite.
+    """
+    inspector = inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue  # create_all já criou a tabela completa
+        db_columns = {c["name"] for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in db_columns:
+                continue
+            col_type = column.type.compile(dialect=conn.dialect)
+            conn.execute(text(
+                f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'
+            ))
 
 
 class Database:
@@ -29,6 +51,7 @@ class Database:
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_auto_migrate)
 
     async def close(self) -> None:
         await self.engine.dispose()

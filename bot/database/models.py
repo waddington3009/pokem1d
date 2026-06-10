@@ -34,6 +34,8 @@ class Guild(Base):
     language: Mapped[str] = mapped_column(String(4), default="pt")
     spawn_channel_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
     redirect_channel_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    # se definido, comandos de jogo só funcionam neste canal
+    game_channel_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
     spawns_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # lista de IDs de canais bloqueados para spawn
     blacklist: Mapped[list] = mapped_column(JSON, default=list)
