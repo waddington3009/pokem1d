@@ -90,6 +90,12 @@ class Spawning(commands.Cog, name="Spawn"):
                 target = ch
         if target.id in blacklist:
             return
+        # só spawna onde o bot pode enviar mensagem + embed (evita 403)
+        me = target.guild.me
+        if me is not None:
+            perms = target.permissions_for(me)
+            if not (perms.send_messages and perms.embed_links):
+                return
         # cooldown e spawn já ativo
         if time.time() - self.last_spawn.get(target.id, 0) < settings.spawn_cooldown_seconds:
             return
@@ -101,7 +107,7 @@ class Spawning(commands.Cog, name="Spawn"):
     # ------------------------------------------------------------------
     async def spawn_pokemon(
         self, channel: discord.TextChannel, species: Species | None = None
-    ) -> ActiveSpawn:
+    ) -> ActiveSpawn | None:
         """Faz um pokémon aparecer no canal."""
         species = species or pick_spawn_species()
         shiny = roll_shiny(settings.shiny_chance)
@@ -109,7 +115,11 @@ class Spawning(commands.Cog, name="Spawn"):
         prefix = self.bot.prefix_cache.get(channel.guild.id, settings.default_prefix)
         embed = embeds.spawn_embed(species, shiny, prefix)
 
-        msg = await channel.send(embed=embed)
+        try:
+            msg = await channel.send(embed=embed)
+        except discord.Forbidden:
+            # sem permissão para postar neste canal — ignora silenciosamente
+            return None
         spawn = ActiveSpawn(
             species=species, shiny=shiny, channel_id=channel.id,
             guild_id=channel.guild.id, message_id=msg.id,
