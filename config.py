@@ -75,6 +75,15 @@ class Settings:
         "https://raw.githubusercontent.com/PokeAPI/sprites/master/"
         "sprites/pokemon/other/official-artwork/shiny/{id}.png"
     )
+    # Sprites animados (GIF) da Gen 5 — disponíveis para id <= 649
+    sprite_animated_url: str = (
+        "https://raw.githubusercontent.com/PokeAPI/sprites/master/"
+        "sprites/pokemon/versions/generation-v/black-white/animated/{id}.gif"
+    )
+    sprite_animated_shiny_url: str = (
+        "https://raw.githubusercontent.com/PokeAPI/sprites/master/"
+        "sprites/pokemon/versions/generation-v/black-white/animated/shiny/{id}.gif"
+    )
 
     # Cores (embeds)
     color_default: int = 0xE3350D       # vermelho pokébola
@@ -88,6 +97,13 @@ class Settings:
             tmpl = self.sprite_official_shiny_url if shiny else self.sprite_official_url
         else:
             tmpl = self.sprite_shiny_url if shiny else self.sprite_url
+        return tmpl.format(id=species_id)
+
+    def sprite_animated(self, species_id: int, shiny: bool = False) -> str:
+        """GIF animado (Gen 5). Cai para o sprite estático se não houver animação."""
+        if species_id > 649:
+            return self.sprite(species_id, shiny=shiny)
+        tmpl = self.sprite_animated_shiny_url if shiny else self.sprite_animated_url
         return tmpl.format(id=species_id)
 
 

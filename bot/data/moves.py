@@ -134,6 +134,51 @@ def get_move(key: str) -> Move | None:
     return MOVES.get(key)
 
 
+def build_moveset(types: list[str], preferred: list[str] | None = None) -> list[str]:
+    """Gera até 4 golpes COERENTES com o tipo da espécie.
+
+    Mantém apenas golpes do(s) próprio(s) tipo(s) ou do tipo Normal (universal) —
+    remove coberturas fora de tipo (ex.: Earthquake num Charizard). Prioriza os
+    golpes preferidos (do dataset) que combinam, garante STAB de cada tipo e
+    completa com golpes do tipo / Normais mais fortes.
+    """
+    chosen: list[str] = []
+    type_set = set(types)
+
+    def add(key: str | None) -> None:
+        if key and key in MOVES and key not in chosen:
+            chosen.append(key)
+
+    # 1) preferidos do dataset que combinam com o tipo (mantém status temáticos)
+    for key in preferred or []:
+        mv = MOVES.get(key)
+        if mv and (mv.type in type_set or mv.type == "normal"):
+            add(key)
+
+    # 2) golpe de dano mais forte de CADA tipo (garante STAB dos dois)
+    for t in types:
+        pool = sorted(
+            (kv for kv in MOVES.items() if kv[1].type == t and kv[1].category != "status"),
+            key=lambda kv: kv[1].power, reverse=True,
+        )
+        if pool:
+            add(pool[0][0])
+
+    # 3) completa com mais golpes do próprio tipo (mais fortes primeiro)
+    extra = sorted(
+        (kv for kv in MOVES.items() if kv[1].type in type_set and kv[1].category != "status"),
+        key=lambda kv: kv[1].power, reverse=True,
+    )
+    for key, _ in extra:
+        add(key)
+
+    # 4) apoio Normal (universal) se ainda faltar
+    for key in ("body-slam", "quick-attack", "tackle"):
+        add(key)
+
+    return chosen[:4] if chosen else ["tackle"]
+
+
 def default_moveset(types: list[str]) -> list[str]:
     """Gera um conjunto de 4 golpes coerente com os tipos da espécie."""
     moves: list[str] = ["tackle"]

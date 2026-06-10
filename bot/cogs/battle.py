@@ -223,6 +223,9 @@ class BattleView(discord.ui.View):
                        f"Time: {team_dots(team, active)}"),
                 inline=True,
             )
+        # sprites animados: oponente grande (imagem) e o seu como miniatura
+        emb.set_image(url=settings.sprite_animated(self.p2.species.id, self.p2.shiny))
+        emb.set_thumbnail(url=settings.sprite_animated(self.p1.species.id, self.p1.shiny))
         emb.add_field(name=f"📜 Turno {self.turn}", value="\n".join(self.log[-6:]) or "—", inline=False)
         if not self.finished:
             actor = self._actor_id()
@@ -436,6 +439,7 @@ class MoveButton(discord.ui.Button):
     def __init__(self, move: Move, view: BattleView, disabled: bool):
         mon = view.p1 if view.phase == "act_p1" else view.p2
         super().__init__(label=f"{move.name} ({mon.pp.get(move.key, 0)})"[:80],
+                         emoji=TYPE_EMOJI.get(move.type),
                          style=discord.ButtonStyle.primary, disabled=disabled)
         self.move = move
         self._bv = view

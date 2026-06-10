@@ -9,7 +9,10 @@ from pathlib import Path
 
 from config import DATA_DIR
 
-from .moves import MOVES, default_moveset
+from .moves import build_moveset
+
+# Pokémon fracos de propósito (lore): mantêm um moveset mínimo.
+WEAK_MOVESETS = {129: ["tackle"], 132: ["tackle"]}  # Magikarp, Ditto
 
 
 def normalize_name(text: str) -> str:
@@ -87,10 +90,11 @@ class Pokedex:
             for e in entry.get("evolution", [])
         ]
         types = entry["types"]
-        # valida/atribui movepool
-        moves = [m for m in entry.get("moves", []) if m in MOVES]
-        if len(moves) < 4:
-            moves = default_moveset(types)
+        # moveset coerente com o tipo (remove golpes fora de tipo)
+        if entry["id"] in WEAK_MOVESETS:
+            moves = WEAK_MOVESETS[entry["id"]]
+        else:
+            moves = build_moveset(types, entry.get("moves"))
         sp = Species(
             id=entry["id"],
             name=entry["name"],
