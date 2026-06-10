@@ -25,7 +25,9 @@ def _auto_migrate(conn) -> None:
     """
     inspector = inspect(conn)
     existing_tables = set(inspector.get_table_names())
-    for table in Base.metadata.sorted_tables:
+    # .tables.values() (não sorted_tables): evita aviso de ciclo de FK e a
+    # ordem é irrelevante para ALTER TABLE ADD COLUMN.
+    for table in Base.metadata.tables.values():
         if table.name not in existing_tables:
             continue  # create_all já criou a tabela completa
         db_columns = {c["name"] for c in inspector.get_columns(table.name)}

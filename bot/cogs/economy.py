@@ -8,7 +8,7 @@ from discord.ext import commands
 from sqlalchemy import select
 
 from config import settings
-from bot.data.items import ITEMS, SHOP_ORDER, find_item
+from bot.data.items import ITEMS, SHOP_ORDER, find_item, split_item_and_quantity
 from bot.data.pokemon_data import POKEDEX
 from bot.database.db import session_scope
 from bot.database.models import MarketListing, Pokemon, User
@@ -113,11 +113,14 @@ class Economy(commands.Cog, name="Economia"):
     # ------------------------------------------------------------------
     @commands.command(name="buy", aliases=["comprar"])
     @commands.guild_only()
-    async def buy(self, ctx: commands.Context, item: str, quantidade: int = 1) -> None:
-        """Compra um item da loja. Uso: buy <item> [quantidade]."""
-        it = find_item(item)
+    async def buy(self, ctx: commands.Context, *, args: str) -> None:
+        """Compra um item da loja. Uso: buy <item> [quantidade]. Ex.: `buy Great Ball 3`."""
+        item_name, qty = split_item_and_quantity(args)
+        quantidade = qty if qty is not None else 1
+        it = find_item(item_name)
         if it is None or it.price <= 0:
-            await ctx.send(embed=embeds.err_embed("Item inválido ou não vendável. Veja a `shop`."))
+            await ctx.send(embed=embeds.err_embed(
+                f"Item **{item_name}** inválido ou não vendável. Veja a `{ctx.prefix}shop`."))
             return
         if quantidade < 1 or quantidade > 1000:
             await ctx.send(embed=embeds.err_embed("Quantidade inválida (1–1000)."))
@@ -141,9 +144,11 @@ class Economy(commands.Cog, name="Economia"):
     # ------------------------------------------------------------------
     @commands.command(name="sell", aliases=["vender"])
     @commands.guild_only()
-    async def sell(self, ctx: commands.Context, item: str, quantidade: int = 1) -> None:
-        """Vende um item de volta por metade do preço."""
-        it = find_item(item)
+    async def sell(self, ctx: commands.Context, *, args: str) -> None:
+        """Vende um item de volta por metade do preço. Uso: sell <item> [quantidade]."""
+        item_name, qty = split_item_and_quantity(args)
+        quantidade = qty if qty is not None else 1
+        it = find_item(item_name)
         if it is None:
             await ctx.send(embed=embeds.err_embed("Item inválido. Veja seu inventário com `bag`."))
             return

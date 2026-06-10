@@ -1,7 +1,15 @@
 """Registro de itens: pokébolas, pedras de evolução, incensos e boosters."""
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
+
+
+def _norm(text: str) -> str:
+    """Normaliza para comparação: sem acento, minúsculo, sem espaço/hífen."""
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return "".join(c for c in text.lower() if c.isalnum())
 
 
 @dataclass(frozen=True)
@@ -92,15 +100,29 @@ def get_item(key: str) -> Item | None:
 
 
 def find_item(query: str) -> Item | None:
-    """Busca por key ou por nome (ignora maiúsculas/espaços/hífens)."""
-    q = query.lower().strip().replace(" ", "-")
-    if q in ITEMS:
-        return ITEMS[q]
+    """Busca por key ou por nome — tolerante a acento, maiúsculas, espaços e hífens.
+
+    Aceita: 'thunder-stone', 'Thunder Stone', 'thunderstone', 'Poké Ball', 'poke ball'...
+    """
+    key = _norm(query)
+    if not key:
+        return None
     for item in ITEMS.values():
-        norm = item.name.lower().replace(" ", "-")
-        if norm == q or norm.replace("-", "") == q.replace("-", ""):
+        if _norm(item.key) == key or _norm(item.name) == key:
             return item
     return None
+
+
+def split_item_and_quantity(text: str) -> tuple[str, int | None]:
+    """Separa um nome de item (com espaços) de um número opcional no final.
+
+    'Thunder Stone 5' -> ('Thunder Stone', 5)
+    'Great Ball'      -> ('Great Ball', None)
+    """
+    parts = text.rsplit(None, 1)
+    if len(parts) == 2 and parts[1].lstrip("-").isdigit():
+        return parts[0].strip(), int(parts[1])
+    return text.strip(), None
 
 
 def best_ball(owned: dict[str, int]) -> Item | None:

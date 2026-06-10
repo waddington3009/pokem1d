@@ -5,7 +5,7 @@ import discord
 from discord.ext import commands
 
 from config import settings
-from bot.data.items import find_item, get_item
+from bot.data.items import find_item, get_item, split_item_and_quantity
 from bot.data.pokemon_data import POKEDEX
 from bot.database.db import session_scope
 from bot.utils import embeds, helpers
@@ -59,11 +59,13 @@ class Items(commands.Cog, name="Itens"):
     # ------------------------------------------------------------------
     @commands.command(name="use", aliases=["usar"])
     @commands.guild_only()
-    async def use(self, ctx: commands.Context, item: str, numero: int | None = None) -> None:
-        """Usa um item. Uso: use <item> [#pokémon]."""
-        it = find_item(item)
+    async def use(self, ctx: commands.Context, *, args: str) -> None:
+        """Usa um item. Uso: use <item> [#pokémon]. Ex.: `use Thunder Stone 5`."""
+        item_name, numero = split_item_and_quantity(args)
+        it = find_item(item_name)
         if it is None:
-            await ctx.send(embed=embeds.err_embed("Item desconhecido. Veja seu inventário com `bag`."))
+            await ctx.send(embed=embeds.err_embed(
+                f"Item **{item_name}** desconhecido. Veja seu inventário com `{ctx.prefix}bag`."))
             return
 
         async with session_scope() as session:
