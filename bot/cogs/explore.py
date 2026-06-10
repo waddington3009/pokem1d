@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 from config import settings
-from bot.data.items import best_ball
+from bot.data.items import get_item
 from bot.data.pokemon_data import POKEDEX, Species
 from bot.data.types import TYPE_EMOJI, type_color
 from bot.database.db import session_scope
@@ -33,10 +33,12 @@ CATCH_CHANCE: dict[str, float] = {
 
 # Bônus de chance (aditivo) por pokébola — consumida na tentativa
 BALL_CATCH_BONUS: dict[str, float] = {
+    "pokeball": 0.0,     # base
     "greatball": 0.15,
     "ultraball": 0.30,
     "masterball": 1.0,   # garante
 }
+BALL_ORDER = ["pokeball", "greatball", "ultraball", "masterball"]
 
 LOCATIONS = [
     "Floresta de Viridian", "Rota 1", "Caverna Escura", "Monte Lua",
@@ -102,6 +104,9 @@ class EncounterView(discord.ui.View):
         self.location = location
         self.message: discord.Message | None = None
         self.resolved = False
+        self.phase = "main"          # "main" | "ball"
+        self.owned: dict[str, int] = {}
+        self._build()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.explorer_id:
@@ -112,6 +117,23 @@ class EncounterView(discord.ui.View):
             return False
         return True
 
+    # ---- construção dos botões ----
+    def _build(self) -> None:
+        self.clear_items()
+        if self.phase == "main":
+            self.add_item(EncounterButton("Capturar", "🎯", discord.ButtonStyle.success, "capturar", self))
+            self.add_item(EncounterButton("Batalhar", "⚔️", discord.ButtonStyle.primary, "batalhar", self))
+            self.add_item(EncounterButton("Ignorar", "🏃", discord.ButtonStyle.secondary, "ignorar", self))
+        elif self.phase == "ball":
+            for key in BALL_ORDER:
+                if self.owned.get(key, 0) > 0:
+                    self.add_item(BallButton(key, self.owned[key], self))
+            self.add_item(EncounterButton("Voltar", "↩️", discord.ButtonStyle.secondary, "voltar", self, row=1))
+
+    def _chance_for(self, ball_key: str) -> float:
+        base = CATCH_CHANCE.get(self.species.rarity, 0.5)
+        return min(base + BALL_CATCH_BONUS.get(ball_key, 0.0), 1.0)
+
     def _finish_embed(self, title: str, color: int, extra: str = "") -> discord.Embed:
         name = ("✨ " if self.shiny else "") + self.species.name
         emb = discord.Embed(title=title, color=color,
@@ -119,50 +141,85 @@ class EncounterView(discord.ui.View):
         emb.set_thumbnail(url=settings.sprite_animated(self.species.id, shiny=self.shiny))
         return emb
 
-    # ---------------- Capturar ----------------
-    @discord.ui.button(label="Capturar", emoji="🎯", style=discord.ButtonStyle.success)
-    async def capturar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    def _ball_embed(self) -> discord.Embed:
+        name = ("✨ " if self.shiny else "") + self.species.name
+        emb = discord.Embed(
+            title=f"🎯 Capturar {name}",
+            description="Escolha a **pokébola** para usar — a chance varia conforme a bola:",
+            color=type_color(self.species.types),
+        )
+        emb.set_thumbnail(url=settings.sprite_animated(self.species.id, shiny=self.shiny))
+        return emb
+
+    # ---- ações ----
+    async def on_main(self, interaction: discord.Interaction, action: str) -> None:
+        if self.resolved:
+            return
+        if action == "capturar":
+            async with session_scope() as session:
+                user = await helpers.fetch_user(session, self.explorer_id)
+                inv = await helpers.get_inventory(session, user.id)
+            self.owned = {k: inv.get(k, 0) for k in BALL_ORDER if inv.get(k, 0) > 0}
+            if not self.owned:
+                await interaction.response.send_message(
+                    "🎒 Você não tem pokébolas! Compre na `p!shop` (ou escolha **Batalhar**).",
+                    ephemeral=True,
+                )
+                return
+            self.phase = "ball"
+            self._build()
+            await interaction.response.edit_message(embed=self._ball_embed(), view=self)
+        elif action == "voltar":
+            self.phase = "main"
+            self._build()
+            await interaction.response.edit_message(
+                embed=encounter_embed(self.species, self.shiny, self.level, self.location), view=self)
+        elif action == "batalhar":
+            await self._do_battle(interaction)
+        elif action == "ignorar":
+            self.resolved = True
+            self.clear_items()
+            emb = self._finish_embed("🏃 Você seguiu em frente.", settings.color_info,
+                                     "Deixou o pokémon em paz.")
+            await interaction.response.edit_message(embed=emb, view=self)
+            self.stop()
+
+    async def on_ball(self, interaction: discord.Interaction, ball_key: str) -> None:
         if self.resolved:
             return
         self.resolved = True
-        for c in self.children:
-            c.disabled = True
+        self.clear_items()
+        item = get_item(ball_key)
+        chance = self._chance_for(ball_key)
+        shiny = self.shiny
 
-        # chance base + bônus de pokébola (consumida na tentativa)
-        chance = CATCH_CHANCE.get(self.species.rarity, 0.5)
-        iv_rolls, iv_floor, shiny = 1, 0, self.shiny
-        ball_txt = ""
         async with session_scope() as session:
-            user = await helpers.fetch_user(session, interaction.user.id)
-            inv = await helpers.get_inventory(session, user.id)
-            ball = best_ball(inv)
-            if ball is not None:
-                await helpers.take_item(session, user.id, ball.key, 1)
-                chance += BALL_CATCH_BONUS.get(ball.key, 0.0)
-                iv_rolls, iv_floor = ball.catch_iv_rolls, ball.min_iv_floor
-                if not shiny:
-                    shiny = roll_shiny(settings.shiny_chance, ball.shiny_bonus)
-                ball_txt = f" (usou {ball.emoji} {ball.name})"
+            user = await helpers.fetch_user(session, self.explorer_id)
+            ok = await helpers.take_item(session, user.id, ball_key, 1)
+        if not ok:
+            await interaction.response.edit_message(
+                embed=self._finish_embed("Ops!", settings.color_error, "Você não tinha essa pokébola."),
+                view=self)
+            self.stop()
+            return
 
-        success = random.random() < min(chance, 1.0)
-        if not success:
+        if not shiny:
+            shiny = roll_shiny(settings.shiny_chance, item.shiny_bonus)
+
+        if random.random() >= chance:
             emb = self._finish_embed(
                 "💨 Quase!", settings.color_error,
-                f"O **{self.species.name}** se soltou e fugiu!{ball_txt}\n"
-                f"Chance era de {int(min(chance,1.0)*100)}%.",
-            )
+                f"O **{self.species.name}** se soltou e fugiu! (usou {item.emoji} {item.name})\n"
+                f"Chance era de **{int(chance*100)}%**.")
             await interaction.response.edit_message(embed=emb, view=self)
             self.stop()
             return
 
         idx, coins, new_dex, newly, iv_pct = await do_capture(
-            self.cog.bot, interaction.user.id, self.species, self.level, shiny,
-            iv_rolls, iv_floor,
-        )
-        extra = (
-            f"📊 IV: **{iv_pct:.1f}%** • 💰 +{coins} PokéCoins{ball_txt}\n"
-            f"Adicionado como **#{idx}**."
-        )
+            self.cog.bot, self.explorer_id, self.species, self.level, shiny,
+            item.catch_iv_rolls, item.min_iv_floor)
+        extra = (f"📊 IV: **{iv_pct:.1f}%** • 💰 +{coins} PokéCoins (usou {item.emoji} {item.name})\n"
+                 f"Adicionado como **#{idx}**.")
         if new_dex:
             extra += "\n📕 Novo registro na Pokédex!"
         if shiny:
@@ -172,33 +229,24 @@ class EncounterView(discord.ui.View):
         if newly:
             await self.ctx.send(embed=embeds.ok_embed(
                 "Conquista desbloqueada!",
-                "\n".join(f"🏆 {a.name} (+{a.reward_coins} 🪙)" for a in newly),
-            ))
+                "\n".join(f"🏆 {a.name} (+{a.reward_coins} 🪙)" for a in newly)))
         self.stop()
 
-    # ---------------- Batalhar ----------------
-    @discord.ui.button(label="Batalhar", emoji="⚔️", style=discord.ButtonStyle.primary)
-    async def batalhar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if self.resolved:
-            return
+    async def _do_battle(self, interaction: discord.Interaction) -> None:
         battle_cog = self.cog.bot.get_cog("Batalha")
         if battle_cog is None:
             await interaction.response.send_message("Sistema de batalha indisponível.", ephemeral=True)
             return
-
         p1_team, err = await battle_cog.load_team(self.ctx, interaction.user)
         if not p1_team:
             await interaction.response.send_message(
-                f"⚠️ {err}\nVocê pode **Capturar** sem batalhar.", ephemeral=True
-            )
+                f"⚠️ {err}\nVocê pode **Capturar** com uma pokébola.", ephemeral=True)
             return
 
-        # consome o encontro e inicia a batalha
         self.resolved = True
-        for c in self.children:
-            c.disabled = True
+        self.clear_items()
         emb = self._finish_embed("⚔️ Batalha iniciada!", settings.color_info,
-                                 "Vença para capturar o pokémon!")
+                                 "Lute por **XP e moedas**! (a batalha não captura o pokémon)")
         await interaction.response.edit_message(embed=emb, view=self)
         self.stop()
 
@@ -206,46 +254,18 @@ class EncounterView(discord.ui.View):
         lead = p1_team[0]
         wild_level = balanced_wild_level(lead.level, lead.species.base_total, self.species.base_total)
         p2_team = [build_wild_mon(self.species, wild_level, shiny=self.shiny)]
-        species, level, shiny, explorer_id = self.species, self.level, self.shiny, self.explorer_id
-        cog, ctx = self.cog, self.ctx
+        species, explorer_id, ctx = self.species, self.explorer_id, self.ctx
 
         async def on_finish(winner, loser):
-            if winner.owner_id != explorer_id:
-                await ctx.send(embed=embeds.info_text(
-                    f"O **{species.name}** selvagem te derrotou e fugiu... 💨",
-                ))
-                return
-            idx, coins, new_dex, newly, iv_pct = await do_capture(
-                cog.bot, explorer_id, species, level, shiny
-            )
-            extra = (f"Após a vitória, você capturou **{species.name}**!\n"
-                     f"📊 IV: {iv_pct:.1f}% • Adicionado como #{idx}.")
-            if new_dex:
-                extra += "\n📕 Novo registro na Pokédex!"
-            emb = discord.Embed(title=f"🎉 {species.name} capturado!", description=extra,
-                                color=settings.color_success)
-            emb.set_thumbnail(url=settings.sprite_animated(species.id, shiny=shiny))
-            await ctx.send(embed=emb)
-            if newly:
+            if winner.owner_id == explorer_id:
                 await ctx.send(embed=embeds.ok_embed(
-                    "Conquista desbloqueada!",
-                    "\n".join(f"🏆 {a.name} (+{a.reward_coins} 🪙)" for a in newly),
-                ))
+                    "Vitória! 🏆",
+                    f"Você derrotou o **{species.name}** selvagem e ele fugiu. "
+                    f"Recompensas de batalha aplicadas! Para colecioná-lo, use **Capturar** num próximo encontro."))
+            else:
+                await ctx.send(embed=embeds.info_text(f"O **{species.name}** selvagem te derrotou... 💨"))
 
         await battle_cog.launch_battle(ctx, p1_team, p2_team, explorer_id, None, on_finish=on_finish)
-
-    # ---------------- Ignorar ----------------
-    @discord.ui.button(label="Ignorar", emoji="🏃", style=discord.ButtonStyle.secondary)
-    async def ignorar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if self.resolved:
-            return
-        self.resolved = True
-        for c in self.children:
-            c.disabled = True
-        emb = self._finish_embed("🏃 Você seguiu em frente.", settings.color_info,
-                                 "Deixou o pokémon em paz.")
-        await interaction.response.edit_message(embed=emb, view=self)
-        self.stop()
 
     async def on_timeout(self) -> None:
         if self.resolved:
@@ -259,6 +279,31 @@ class EncounterView(discord.ui.View):
                 await self.message.edit(embed=emb, view=self)
             except discord.HTTPException:
                 pass
+
+
+class EncounterButton(discord.ui.Button):
+    def __init__(self, label, emoji, style, action, view: EncounterView, row: int = 0):
+        super().__init__(label=label, emoji=emoji, style=style, row=row)
+        self.action = action
+        self._ev = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._ev.on_main(interaction, self.action)
+
+
+class BallButton(discord.ui.Button):
+    def __init__(self, ball_key: str, qty: int, view: EncounterView):
+        item = get_item(ball_key)
+        chance = view._chance_for(ball_key)
+        super().__init__(
+            label=f"{item.name} (×{qty}) • {int(chance * 100)}%",
+            emoji=item.emoji, style=discord.ButtonStyle.success,
+        )
+        self.ball_key = ball_key
+        self._ev = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._ev.on_ball(interaction, self.ball_key)
 
 
 class Explore(commands.Cog, name="Exploração"):
