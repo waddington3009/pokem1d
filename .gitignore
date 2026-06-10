@@ -1,0 +1,21 @@
+# Segredos — NUNCA versionar
+.env
+
+# Banco de dados local
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

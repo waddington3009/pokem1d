@@ -1,0 +1,16 @@
+# ---- Core ----
+discord.py>=2.3.2
+
+# ---- Database (async SQLAlchemy) ----
+SQLAlchemy[asyncio]>=2.0.25
+aiosqlite>=0.19.0          # driver SQLite (default / dev)
+asyncpg>=0.30.0           # driver PostgreSQL (produção/VPS) — wheels p/ Python 3.13
+
+# ---- Config ----
+python-dotenv>=1.0.0
+
+# ---- Utilidades ----
+aiohttp>=3.9.0             # já vem com discord.py, listado p/ clareza
+
+# ---- Opcional: geração de imagens (cards) ----
+# Pillow>=10.0.0           # descomente se quiser cards renderizados

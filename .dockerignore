@@ -1,0 +1,18 @@
+# Mantém a imagem pequena e evita vazar segredos para dentro dela
+.git
+.gitignore
+.env
+.env.example
+*.db
+*.sqlite*
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+README.md
+DEPLOY.md
