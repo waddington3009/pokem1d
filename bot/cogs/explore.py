@@ -186,8 +186,8 @@ class EncounterView(discord.ui.View):
             await interaction.response.send_message("Sistema de batalha indisponível.", ephemeral=True)
             return
 
-        p1, err = await battle_cog.load_selected(self.ctx, interaction.user)
-        if p1 is None:
+        p1_team, err = await battle_cog.load_team(self.ctx, interaction.user)
+        if not p1_team:
             await interaction.response.send_message(
                 f"⚠️ {err}\nVocê pode **Capturar** sem batalhar.", ephemeral=True
             )
@@ -203,7 +203,7 @@ class EncounterView(discord.ui.View):
         self.stop()
 
         from bot.cogs.battle import build_wild_mon
-        p2 = build_wild_mon(self.species, self.level, shiny=self.shiny)
+        p2_team = [build_wild_mon(self.species, self.level, shiny=self.shiny)]
         species, level, shiny, explorer_id = self.species, self.level, self.shiny, self.explorer_id
         cog, ctx = self.cog, self.ctx
 
@@ -230,7 +230,7 @@ class EncounterView(discord.ui.View):
                     "\n".join(f"🏆 {a.name} (+{a.reward_coins} 🪙)" for a in newly),
                 ))
 
-        await battle_cog.launch_battle(ctx, p1, p2, explorer_id, None, on_finish=on_finish)
+        await battle_cog.launch_battle(ctx, p1_team, p2_team, explorer_id, None, on_finish=on_finish)
 
     # ---------------- Ignorar ----------------
     @discord.ui.button(label="Ignorar", emoji="🏃", style=discord.ButtonStyle.secondary)

@@ -25,7 +25,7 @@ git init
 git add .
 git commit -m "PokeM1D - bot de Pokémon"
 git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/PokeM1D.git
+git remote add origin https://github.com/waddington3009/pokem1d
 git push -u origin main
 ```
 

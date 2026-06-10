@@ -58,6 +58,8 @@ class User(Base):
         ForeignKey("pokemon.id", ondelete="SET NULL"), default=None
     )
     next_idx: Mapped[int] = mapped_column(Integer, default=1)  # próximo índice por usuário
+    # time de batalha: lista de índices (idx) de pokémon, até 3
+    party: Mapped[list] = mapped_column(JSON, default=list)
 
     # Daily / streak
     daily_streak: Mapped[int] = mapped_column(Integer, default=0)
