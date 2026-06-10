@@ -85,7 +85,7 @@ def encounter_embed(species: Species, shiny: bool, level: int, location: str,
             f"{types} • {RARITY_EMOJI.get(species.rarity,'')} {rarity_label(species.rarity)}\n\n"
             f"O que você deseja fazer?"
         )
-    emb.set_image(url=settings.sprite_animated(species.id, shiny=shiny))
+    emb.set_image(url=settings.sprite(species.id, shiny=shiny, official=True))
     return emb
 
 

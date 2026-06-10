@@ -49,7 +49,7 @@ def spawn_embed(species: Species, shiny: bool, prefix: str = "p!") -> discord.Em
         description=desc,
         color=color,
     )
-    embed.set_image(url=settings.sprite_animated(species.id, shiny=shiny))
+    embed.set_image(url=settings.sprite(species.id, shiny=shiny, official=True))
     if shiny:
         embed.set_footer(text="✨ Há algo de diferente neste...")
     return embed

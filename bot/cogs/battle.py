@@ -1,6 +1,7 @@
 """Batalha por turnos com TIME (até 3) e troca: PvP (battle) e PvE (duel)."""
 from __future__ import annotations
 
+import asyncio
 import random
 from dataclasses import dataclass
 
@@ -132,10 +133,15 @@ def ai_choose_move(attacker: BattleMon, defender: BattleMon) -> Move:
 # ==========================================================================
 class BattleView(discord.ui.View):
     def __init__(self, cog: "Battle", ctx, p1_team: list[BattleMon], p2_team: list[BattleMon],
-                 p1_id: int, p2_id: int | None, on_finish=None):
+                 p1_id: int, p2_id: int | None, on_finish=None,
+                 battle_channel=None, temp_channel=None):
         super().__init__(timeout=180)
         self.cog = cog
         self.ctx = ctx
+        # canal onde a batalha é postada (pode ser uma arena privada)
+        self.battle_channel = battle_channel or ctx.channel
+        # se definido, esse canal é deletado 10s após o fim
+        self.temp_channel = temp_channel
         self.p1_team = p1_team
         self.p2_team = p2_team
         self.p1_active = 0
@@ -240,7 +246,21 @@ class BattleView(discord.ui.View):
         return emb
 
     async def start(self) -> None:
-        self.message = await self.ctx.send(embed=self.render(), view=self)
+        content = None
+        if self.p2_id is not None:
+            content = f"<@{self.p1_id}> ⚔️ <@{self.p2_id}> — que vença o melhor!"
+        self.message = await self.battle_channel.send(content=content, embed=self.render(), view=self)
+
+    async def _cleanup_channel(self) -> None:
+        """Apaga a arena privada 10s após o fim da batalha."""
+        if self.temp_channel is None:
+            return
+        try:
+            await self.temp_channel.send("🏁 A batalha acabou! Esta arena some em **10 segundos**...")
+            await asyncio.sleep(10)
+            await self.temp_channel.delete(reason="Fim da batalha PvP")
+        except discord.HTTPException:
+            pass
 
     async def _safe_edit(self, interaction: discord.Interaction) -> None:
         await interaction.response.edit_message(embed=self.render(), view=self)
@@ -421,6 +441,8 @@ class BattleView(discord.ui.View):
                 await self.on_finish(winner_rep, loser_rep)
             except Exception:  # noqa: BLE001
                 pass
+        if self.temp_channel is not None:
+            asyncio.create_task(self._cleanup_channel())
         self.stop()
 
     async def on_timeout(self) -> None:
@@ -433,6 +455,8 @@ class BattleView(discord.ui.View):
                 await self.message.edit(content="⌛ A batalha expirou por inatividade.", view=self)
             except discord.HTTPException:
                 pass
+        if self.temp_channel is not None:
+            asyncio.create_task(self._cleanup_channel())
 
 
 class MoveButton(discord.ui.Button):
@@ -537,10 +561,34 @@ class Battle(commands.Cog, name="Batalha"):
         team, err = await self.load_team(ctx, member)
         return (team[0] if team else None), err
 
-    async def launch_battle(self, ctx, p1_team, p2_team, p1_id, p2_id, on_finish=None) -> BattleView:
-        view = BattleView(self, ctx, p1_team, p2_team, p1_id, p2_id, on_finish=on_finish)
+    async def launch_battle(self, ctx, p1_team, p2_team, p1_id, p2_id, on_finish=None,
+                            battle_channel=None, temp_channel=None) -> BattleView:
+        view = BattleView(self, ctx, p1_team, p2_team, p1_id, p2_id, on_finish=on_finish,
+                          battle_channel=battle_channel, temp_channel=temp_channel)
         await view.start()
         return view
+
+    async def _create_arena(self, ctx, a: discord.Member, b: discord.Member):
+        """Cria um canal de batalha privado (só os dois + bot). None se não puder."""
+        me = ctx.guild.me
+        if not me.guild_permissions.manage_channels:
+            return None
+        overwrites = {
+            ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, embed_links=True, manage_channels=True),
+            a: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            b: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        }
+        nome = f"batalha-{a.display_name}-vs-{b.display_name}"[:95]
+        try:
+            return await ctx.guild.create_text_channel(
+                nome, overwrites=overwrites, category=ctx.channel.category,
+                topic=f"Batalha PvP entre {a.display_name} e {b.display_name}",
+                reason="Arena de batalha PvP (temporária)",
+            )
+        except discord.HTTPException:
+            return None
 
     # ------------------------------------------------------------------
     @commands.command(name="duel", aliases=["pve", "wild"])
@@ -594,7 +642,19 @@ class Battle(commands.Cog, name="Batalha"):
         if not confirm.value:
             await ctx.send(embed=embeds.info_text("Desafio recusado ou expirado. 🙅"))
             return
-        await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, oponente.id)
+
+        # cria uma arena privada (se o bot tiver permissão); senão, luta no canal atual
+        arena = await self._create_arena(ctx, ctx.author, oponente)
+        if arena is not None:
+            await ctx.send(embed=embeds.ok_embed(
+                "Arena criada! ⚔️",
+                f"{ctx.author.mention} vs {oponente.mention} — a batalha é em {arena.mention} "
+                f"(só vocês dois). O canal some 10s após o fim.",
+            ))
+            await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, oponente.id,
+                                     battle_channel=arena, temp_channel=arena)
+        else:
+            await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, oponente.id)
 
     # ------------------------------------------------------------------
     async def award(self, winner_id, winner_team, loser_rep, is_pve, loser_id) -> str:
