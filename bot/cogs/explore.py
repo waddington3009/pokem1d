@@ -202,8 +202,10 @@ class EncounterView(discord.ui.View):
         await interaction.response.edit_message(embed=emb, view=self)
         self.stop()
 
-        from bot.cogs.battle import build_wild_mon
-        p2_team = [build_wild_mon(self.species, self.level, shiny=self.shiny)]
+        from bot.cogs.battle import balanced_wild_level, build_wild_mon
+        lead = p1_team[0]
+        wild_level = balanced_wild_level(lead.level, lead.species.base_total, self.species.base_total)
+        p2_team = [build_wild_mon(self.species, wild_level, shiny=self.shiny)]
         species, level, shiny, explorer_id = self.species, self.level, self.shiny, self.explorer_id
         cog, ctx = self.cog, self.ctx
 

@@ -70,11 +70,29 @@ class WildMon:
 
 
 def make_wild(species: Species, level: int) -> WildMon:
-    iv = lambda: random.randint(0, 31)
+    # IVs do selvagem ficam um pouco abaixo do teto -> leve vantagem para o jogador
+    iv = lambda: random.randint(0, 25)
     return WildMon(
         id=-1, species_id=species.id, level=level, nature="Hardy", shiny=False,
         iv_hp=iv(), iv_atk=iv(), iv_def=iv(), iv_spa=iv(), iv_spd=iv(), iv_spe=iv(),
     )
+
+
+def balanced_wild_level(player_level: int, player_bst: int, wild_bst: int,
+                        factor: float = 1.0) -> int:
+    """Nível do selvagem ajustado pela força (BST): espécie forte vem em nível menor."""
+    ratio = player_bst / max(wild_bst, 1)
+    return max(1, round(player_level * min(1.0, ratio) * factor))
+
+
+def pick_balanced_wild_species(lead_species: Species, band: int = 70) -> Species:
+    """Sorteia um selvagem de força (BST) parecida com o líder do jogador (sem lendários)."""
+    target = lead_species.base_total
+    cands = [s for s in POKEDEX.all()
+             if not s.legendary and abs(s.base_total - target) <= band]
+    if not cands:
+        cands = [s for s in POKEDEX.all() if not s.legendary]
+    return random.choice(cands)
 
 
 def build_wild_mon(species: Species, level: int, name: str | None = None,
@@ -523,15 +541,19 @@ class Battle(commands.Cog, name="Batalha"):
     # ------------------------------------------------------------------
     @commands.command(name="duel", aliases=["pve", "wild"])
     @commands.guild_only()
-    async def duel(self, ctx: commands.Context) -> None:
-        """Batalha contra um pokémon selvagem (PvE)."""
+    async def duel(self, ctx: commands.Context, oponente: discord.Member | None = None) -> None:
+        """Batalha: sem @ = contra selvagem (PvE); com @membro = PvP."""
+        if oponente is not None:
+            await self._start_pvp(ctx, oponente)
+            return
         p1_team, err = await self.load_team(ctx, ctx.author)
         if not p1_team:
             await ctx.send(embed=embeds.err_embed(err))
             return
-        from bot.utils.rarity import pick_spawn_species
-        species = pick_spawn_species()
-        level = max(1, p1_team[0].level + random.randint(-3, 3))
+        # inimigo de força parecida, nível ~igual (leve vantagem para o jogador)
+        lead = p1_team[0]
+        species = pick_balanced_wild_species(lead.species)
+        level = max(1, lead.level - random.randint(0, 2))
         p2_team = [build_wild_mon(species, level)]
         await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, None)
 
@@ -540,8 +562,13 @@ class Battle(commands.Cog, name="Batalha"):
     @commands.guild_only()
     async def battle(self, ctx: commands.Context, oponente: discord.Member) -> None:
         """Desafia outro jogador para uma batalha PvP. Uso: battle @usuário."""
+        await self._start_pvp(ctx, oponente)
+
+    async def _start_pvp(self, ctx: commands.Context, oponente: discord.Member) -> None:
         if oponente.bot or oponente.id == ctx.author.id:
-            await ctx.send(embed=embeds.err_embed("Escolha outro jogador válido."))
+            await ctx.send(embed=embeds.err_embed(
+                "Escolha **outro membro** para a batalha PvP. (Para lutar contra um selvagem, use `"
+                f"{ctx.prefix}duel` sem marcar ninguém.)"))
             return
         p1_team, err1 = await self.load_team(ctx, ctx.author)
         if not p1_team:
@@ -554,7 +581,7 @@ class Battle(commands.Cog, name="Batalha"):
 
         confirm = Confirm(oponente.id, confirm_label="Aceitar ⚔️", cancel_label="Recusar")
         emb = embeds.info_text(
-            f"{oponente.mention}, **{ctx.author.display_name}** te desafiou!\n"
+            f"{oponente.mention}, **{ctx.author.display_name}** te desafiou para um **PvP**!\n"
             f"Seu time: **{len(p2_team)}** pokémon vs **{len(p1_team)}** do desafiante.",
             title="⚔️ Desafio de batalha!",
         )
