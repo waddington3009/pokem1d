@@ -117,7 +117,7 @@ class Items(commands.Cog, name="Itens"):
                     "✨ Evolução!",
                     f"Usando **{it.name}**, seu **{species.name}** evoluiu para **{new_species.name}**!",
                 )
-                emb.set_thumbnail(url=settings.sprite(new_species.id, shiny=poke.shiny))
+                emb.set_thumbnail(url=settings.sprite_animated(new_species.id, shiny=poke.shiny))
                 await ctx.send(embed=emb)
                 return
 

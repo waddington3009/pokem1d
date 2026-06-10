@@ -49,7 +49,7 @@ def spawn_embed(species: Species, shiny: bool, prefix: str = "p!") -> discord.Em
         description=desc,
         color=color,
     )
-    embed.set_image(url=settings.sprite(species.id, shiny=shiny, official=True))
+    embed.set_image(url=settings.sprite_animated(species.id, shiny=shiny))
     if shiny:
         embed.set_footer(text="✨ Há algo de diferente neste...")
     return embed
@@ -76,7 +76,7 @@ def catch_embed(
         embed.description += "\n📕 **Novo registro na Pokédex!**"
     if shiny:
         embed.description += "\n✨ **SHINY!** Que sorte incrível!"
-    embed.set_thumbnail(url=settings.sprite(species.id, shiny=shiny))
+    embed.set_thumbnail(url=settings.sprite_animated(species.id, shiny=shiny))
     embed.set_footer(text=f"#{pokemon.idx} • {species.name}")
     return embed
 
@@ -88,7 +88,7 @@ def info_embed(species: Species, pokemon, language: str = "pt") -> discord.Embed
 
     title = species_name(species, pokemon.shiny, pokemon.nickname)
     embed = discord.Embed(title=f"#{pokemon.idx} — {title}", color=color)
-    embed.set_thumbnail(url=settings.sprite(species.id, shiny=pokemon.shiny))
+    embed.set_thumbnail(url=settings.sprite_animated(species.id, shiny=pokemon.shiny))
 
     embed.add_field(name="Espécie", value=f"#{species.id:03d} {species.name}", inline=True)
     embed.add_field(name="Tipo", value=types_line(species), inline=True)

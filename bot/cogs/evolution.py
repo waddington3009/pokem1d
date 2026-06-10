@@ -19,7 +19,7 @@ def evolution_embed(before: Species, after: Species, shiny: bool, idx: int) -> d
         description=f"Seu **{before.name}** (#{idx}) evoluiu para **{after.name}**!",
         color=settings.color_shiny if shiny else settings.color_success,
     )
-    emb.set_thumbnail(url=settings.sprite(after.id, shiny=shiny))
+    emb.set_thumbnail(url=settings.sprite_animated(after.id, shiny=shiny))
     return emb
 
 
@@ -77,7 +77,7 @@ class Evolution(commands.Cog, name="Evolução"):
             f"Deseja evoluir **{species.name}** (#{idx}) para **{target.name}**?",
             title="Confirmar evolução",
         )
-        emb.set_thumbnail(url=settings.sprite(target.id, shiny=shiny))
+        emb.set_thumbnail(url=settings.sprite_animated(target.id, shiny=shiny))
         view.message = await ctx.send(embed=emb, view=view)
         await view.wait()
 

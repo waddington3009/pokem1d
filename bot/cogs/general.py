@@ -50,7 +50,7 @@ class General(commands.Cog, name="Geral"):
             f"• Resgate moedas com `{ctx.prefix}daily`\n"
             f"• Veja tudo em `{ctx.prefix}help`",
         )
-        emb.set_thumbnail(url=settings.sprite(starter.id))
+        emb.set_thumbnail(url=settings.sprite_animated(starter.id))
         await ctx.send(embed=emb)
 
     # ------------------------------------------------------------------
@@ -96,7 +96,7 @@ class General(commands.Cog, name="Geral"):
             title=f"#{sp.id:03d} — {sp.name}",
             color=type_color(sp.types),
         )
-        emb.set_image(url=settings.sprite(sp.id, official=True))
+        emb.set_image(url=settings.sprite_animated(sp.id))
         emb.add_field(
             name="Tipo",
             value=" ".join(f"{TYPE_EMOJI.get(t,'')} {t.title()}" for t in sp.types),

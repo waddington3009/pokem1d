@@ -85,7 +85,7 @@ def encounter_embed(species: Species, shiny: bool, level: int, location: str,
             f"{types} • {RARITY_EMOJI.get(species.rarity,'')} {rarity_label(species.rarity)}\n\n"
             f"O que você deseja fazer?"
         )
-    emb.set_image(url=settings.sprite(species.id, shiny=shiny, official=True))
+    emb.set_image(url=settings.sprite_animated(species.id, shiny=shiny))
     return emb
 
 
@@ -116,7 +116,7 @@ class EncounterView(discord.ui.View):
         name = ("✨ " if self.shiny else "") + self.species.name
         emb = discord.Embed(title=title, color=color,
                             description=f"**{name}** (Nv {self.level})\n{extra}")
-        emb.set_thumbnail(url=settings.sprite(self.species.id, shiny=self.shiny))
+        emb.set_thumbnail(url=settings.sprite_animated(self.species.id, shiny=self.shiny))
         return emb
 
     # ---------------- Capturar ----------------
@@ -224,7 +224,7 @@ class EncounterView(discord.ui.View):
                 extra += "\n📕 Novo registro na Pokédex!"
             emb = discord.Embed(title=f"🎉 {species.name} capturado!", description=extra,
                                 color=settings.color_success)
-            emb.set_thumbnail(url=settings.sprite(species.id, shiny=shiny))
+            emb.set_thumbnail(url=settings.sprite_animated(species.id, shiny=shiny))
             await ctx.send(embed=emb)
             if newly:
                 await ctx.send(embed=embeds.ok_embed(

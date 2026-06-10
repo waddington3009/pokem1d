@@ -156,7 +156,7 @@ class Spawning(commands.Cog, name="Spawn"):
                     description=f"O **{spawn.species.name}** selvagem fugiu... 🍃",
                     color=settings.color_error,
                 )
-                embed.set_thumbnail(url=settings.sprite(spawn.species.id, shiny=spawn.shiny))
+                embed.set_thumbnail(url=settings.sprite_animated(spawn.species.id, shiny=spawn.shiny))
                 await channel.send(embed=embed)
             except discord.HTTPException:
                 pass
