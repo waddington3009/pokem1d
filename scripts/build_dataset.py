@@ -34,15 +34,16 @@ KNOWN_STONES = {"fire", "water", "thunder", "leaf", "moon", "sun"}
 
 
 def classify_rarity(base_total: int, capture_rate: int, legendary: bool, mythical: bool) -> str:
+    # Baseado na força (base stat total) — distribuição mais natural que capture_rate.
     if mythical:
         return "mythical"
     if legendary:
         return "legendary"
     if base_total >= 600:
         return "superrare"
-    if capture_rate <= 45:
+    if base_total >= 500:
         return "rare"
-    if capture_rate <= 120:
+    if base_total >= 400:
         return "uncommon"
     return "common"
 
@@ -111,8 +112,11 @@ async def build(start: int, end: int, out_path: Path) -> None:
                     base_total, spec.get("capture_rate", 255),
                     spec.get("is_legendary", False), spec.get("is_mythical", False),
                 )
-                name = poke["name"].replace("-", " ").title()
-                name_to_id[poke["name"]] = pid
+                # usa o nome-base da espécie (sem sufixo de forma: 'keldeo' e não
+                # 'keldeo-ordinary') — facilita a captura e a resolução de evolução
+                species_name = spec["name"]
+                name = species_name.replace("-", " ").title()
+                name_to_id[species_name] = pid
                 entry = {
                     "id": pid,
                     "name": name,
@@ -138,7 +142,7 @@ async def build(start: int, end: int, out_path: Path) -> None:
                         chains_cache[chain_url] = {}
                 entry["_chain"] = chains_cache[chain_url].get(poke["name"], [])
                 results[pid] = entry
-                print(f"  ✓ #{pid:>4} {name} ({rarity})")
+                print(f"  ok #{pid:>4} {name} ({rarity})")
 
         print(f"Baixando espécies {start}..{end} da PokéAPI...")
         await asyncio.gather(*(process(pid) for pid in range(start, end + 1)))
@@ -165,7 +169,7 @@ async def build(start: int, end: int, out_path: Path) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(final, fh, ensure_ascii=False, indent=2)
-        print(f"\n✅ {len(final)} espécies salvas em {out_path}")
+        print(f"\n[OK] {len(final)} especies salvas em {out_path}")
 
 
 def main() -> None:
