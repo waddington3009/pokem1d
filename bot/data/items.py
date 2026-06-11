@@ -132,6 +132,33 @@ def split_item_and_quantity(text: str) -> tuple[str, int | None]:
     return text.strip(), None
 
 
+def parse_use_args(text: str) -> tuple[str, int | None, int]:
+    """Separa '<item> [#pokémon] [xN]'. Retorna (nome, idx_pokémon, quantidade).
+
+    'rare candy 5 x20' -> ('rare candy', 5, 20)
+    'rare candy 5 20'  -> ('rare candy', 5, 20)
+    'rare candy x20'   -> ('rare candy', None, 20)
+    'thunder stone 5'  -> ('thunder stone', 5, 1)
+    """
+    qty = 1
+    idx: int | None = None
+    name_tokens: list[str] = []
+    for tok in text.split():
+        low = tok.lower()
+        if low.startswith("x") and low[1:].isdigit():
+            qty = max(1, int(low[1:]))
+        elif low.endswith("x") and low[:-1].isdigit():
+            qty = max(1, int(low[:-1]))
+        elif tok.isdigit():
+            if idx is None:
+                idx = int(tok)          # 1º número = índice do pokémon
+            else:
+                qty = max(1, int(tok))  # 2º número = quantidade
+        else:
+            name_tokens.append(tok)
+    return " ".join(name_tokens).strip(), idx, qty
+
+
 def best_ball(owned: dict[str, int]) -> Item | None:
     """Melhor pokébola que o usuário possui (para bônus automático na captura)."""
     for key in ("masterball", "ultraball", "greatball"):

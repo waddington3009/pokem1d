@@ -5,7 +5,6 @@ import discord
 from discord.ext import commands
 
 from config import settings
-from bot.data.items import best_ball, get_item
 from bot.data.pokemon_data import normalize_name
 from bot.database.db import session_scope
 from bot.utils import embeds, helpers
@@ -45,23 +44,9 @@ class Catching(commands.Cog, name="Captura"):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
 
-            # bônus da melhor pokébola disponível
-            inv = await helpers.get_inventory(session, user.id)
-            ball = best_ball(inv)
-            iv_rolls, iv_floor = 1, 0
-            if ball is not None:
-                await helpers.take_item(session, user.id, ball.key, 1)
-                iv_rolls = ball.catch_iv_rolls
-                iv_floor = ball.min_iv_floor
-                # bônus de shiny da pokébola (re-roll extra se ainda não for shiny)
-                if not shiny:
-                    from bot.utils.rarity import roll_shiny
-                    shiny = roll_shiny(settings.shiny_chance, ball.shiny_bonus)
-
-            poke = await helpers.create_pokemon(
-                session, user, species, shiny=shiny,
-                iv_rolls=iv_rolls, iv_floor=iv_floor,
-            )
+            # captura do spawn é GRÁTIS (não gasta pokébola). Para usar bolas e
+            # melhorar IV/chance, o jogador usa o p!explore -> Capturar.
+            poke = await helpers.create_pokemon(session, user, species, shiny=shiny)
 
             coins = catch_coin_reward(species, shiny, settings.catch_coins_min, settings.catch_coins_max)
             user.coins += coins

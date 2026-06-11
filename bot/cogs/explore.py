@@ -46,6 +46,19 @@ LOCATIONS = [
     "Pântano Sombrio", "Cume Nevado", "Ruínas Antigas", "Bosque Encantado",
 ]
 
+# Bônus de nível por raridade (lendários aparecem um pouco mais fortes)
+_LEVEL_RARITY_BONUS = {"rare": 4, "superrare": 8, "legendary": 14, "mythical": 18}
+
+
+def roll_encounter_level(species: Species) -> int:
+    """Nível MODESTO do selvagem — NÃO escala com o nível do jogador.
+
+    Assim, mesmo um treinador nível 100 encontra pokémon de nível baixo
+    (você captura fraco e treina), em vez de pegar nível 100 de graça.
+    """
+    base = random.randint(2, 28)
+    return min(70, base + _LEVEL_RARITY_BONUS.get(species.rarity, 0))
+
 
 async def do_capture(
     bot, explorer_id: int, species: Species, level: int, shiny: bool,
@@ -310,14 +323,6 @@ class Explore(commands.Cog, name="Exploração"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    async def _encounter_level(self, explorer_id: int) -> int:
-        """Nível do encontro, próximo ao pokémon selecionado do jogador."""
-        async with session_scope() as session:
-            user = await helpers.fetch_user(session, explorer_id)
-            selected = await helpers.get_selected(session, user)
-            base = selected.level if selected else random.randint(3, 12)
-        return max(1, base + random.randint(-3, 4))
-
     @commands.command(name="explore", aliases=["explorar", "ex", "adventure"])
     @commands.guild_only()
     @commands.cooldown(1, settings.explore_cooldown_seconds, commands.BucketType.user)
@@ -355,7 +360,7 @@ class Explore(commands.Cog, name="Exploração"):
         # 3) encontro com pokémon
         species = pick_spawn_species()
         shiny = roll_shiny(settings.shiny_chance)
-        level = await self._encounter_level(ctx.author.id)
+        level = roll_encounter_level(species)
 
         # registra como "visto" na Pokédex
         async with session_scope() as session:

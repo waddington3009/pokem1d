@@ -5,7 +5,7 @@ import discord
 from discord.ext import commands
 
 from config import settings
-from bot.data.items import find_item, get_item, split_item_and_quantity
+from bot.data.items import find_item, get_item, parse_use_args
 from bot.data.pokemon_data import POKEDEX
 from bot.database.db import session_scope
 from bot.utils import embeds, helpers
@@ -60,8 +60,8 @@ class Items(commands.Cog, name="Itens"):
     @commands.command(name="use", aliases=["usar"])
     @commands.guild_only()
     async def use(self, ctx: commands.Context, *, args: str) -> None:
-        """Usa um item. Uso: use <item> [#pokémon]. Ex.: `use Thunder Stone 5`."""
-        item_name, numero = split_item_and_quantity(args)
+        """Usa um item. Uso: use <item> [#pokémon] [xN]. Ex.: `use Rare Candy 5 x20`."""
+        item_name, numero, qty = parse_use_args(args)
         it = find_item(item_name)
         if it is None:
             await ctx.send(embed=embeds.err_embed(
@@ -122,16 +122,20 @@ class Items(commands.Cog, name="Itens"):
                 return
 
             if it.category == "booster":
+                # usa até `qty` itens, limitado ao que o jogador tem
+                use_qty = max(1, min(qty, inv.get(it.key, 0)))
+                await helpers.take_item(session, user.id, it.key, use_qty)
+                plural = f" (usou {use_qty}×)" if use_qty > 1 else ""
                 if it.level_amount:
                     before = poke.level
-                    poke.level = min(100, poke.level + it.level_amount)
-                    resultado = f"**{species.name}** subiu para o nível **{poke.level}** (era {before})."
+                    poke.level = min(100, poke.level + it.level_amount * use_qty)
+                    resultado = f"**{species.name}** subiu do nível {before} para **{poke.level}**{plural}."
                 elif it.xp_amount:
-                    new_level, new_xp, gained = apply_xp(poke.level, poke.xp, it.xp_amount)
+                    total_xp = it.xp_amount * use_qty
+                    new_level, new_xp, gained = apply_xp(poke.level, poke.xp, total_xp)
                     poke.level, poke.xp = new_level, new_xp
-                    resultado = (f"**{species.name}** ganhou **{it.xp_amount} XP**"
+                    resultado = (f"**{species.name}** ganhou **{total_xp} XP**{plural}"
                                  + (f" e subiu **{gained}** nível(is)!" if gained else "."))
-                await helpers.take_item(session, user.id, it.key, 1)
 
             if resultado is None:
                 await ctx.send(embed=embeds.err_embed("Esse item não pode ser usado assim."))

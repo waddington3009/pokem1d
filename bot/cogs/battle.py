@@ -757,26 +757,38 @@ class Battle(commands.Cog, name="Batalha"):
         await ctx.send(embed=emb)
 
     @party.command(name="add", aliases=["adicionar"])
-    async def party_add(self, ctx: commands.Context, numero: int) -> None:
-        """Adiciona um pokémon ao time. Uso: party add <número>."""
+    async def party_add(self, ctx: commands.Context, *numeros: int) -> None:
+        """Adiciona um ou mais pokémon ao time. Uso: party add <#> [<#> ...]."""
+        if not numeros:
+            await ctx.send(embed=embeds.err_embed("Informe o(s) número(s). Ex.: `party add 1 2 3`."))
+            return
+        added, skipped = [], []
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
             party = list(user.party or [])
-            if len(party) >= PARTY_MAX:
-                await ctx.send(embed=embeds.err_embed(f"O time já está cheio ({PARTY_MAX}). Remova um antes."))
-                return
-            if numero in party:
-                await ctx.send(embed=embeds.err_embed("Esse pokémon já está no time."))
-                return
-            poke = await helpers.get_pokemon_by_idx(session, user.id, numero)
-            if poke is None:
-                await ctx.send(embed=embeds.err_embed(f"Você não tem o pokémon #{numero}."))
-                return
-            party.append(numero)
+            for n in dict.fromkeys(numeros):  # remove duplicatas mantendo a ordem
+                if len(party) >= PARTY_MAX:
+                    skipped.append(f"#{n} (time cheio)")
+                    continue
+                if n in party:
+                    skipped.append(f"#{n} (já no time)")
+                    continue
+                poke = await helpers.get_pokemon_by_idx(session, user.id, n)
+                if poke is None:
+                    skipped.append(f"#{n} (não é seu)")
+                    continue
+                party.append(n)
+                added.append(n)
             user.party = party
-            sp = POKEDEX.get(poke.species_id)
-        await ctx.send(embed=embeds.ok_embed(
-            "Adicionado ao time!", f"**{sp.name}** #{numero} entrou no time ({len(party)}/{PARTY_MAX})."))
+            total = len(party)
+        partes = []
+        if added:
+            partes.append("✅ Adicionados: " + ", ".join(f"#{n}" for n in added) + f" (time {total}/{PARTY_MAX})")
+        if skipped:
+            partes.append("⚠️ Ignorados: " + ", ".join(skipped))
+        msg = "\n".join(partes)
+        await ctx.send(embed=(embeds.ok_embed("Time atualizado", msg) if added
+                              else embeds.err_embed(msg or "Nada foi adicionado.")))
 
     @party.command(name="remove", aliases=["remover", "rem"])
     async def party_remove(self, ctx: commands.Context, numero: int) -> None:
