@@ -172,9 +172,9 @@ class Gyms(commands.Cog, name="Liga"):
                 user.coins += ch.reward_coins
                 lines = [f"🎖️ Você ganhou a **{ch.badge}** {ch.emoji}!",
                          f"💰 +{ch.reward_coins:,} PokéCoins"]
-                if ch.reward_item:
-                    await helpers.add_item(session, user.id, ch.reward_item, ch.reward_item_qty)
-                    it = get_item(ch.reward_item)
+                it = get_item(ch.reward_item) if ch.reward_item else None
+                if it is not None:
+                    await helpers.add_item(session, user.id, it.key, ch.reward_item_qty)
                     lines.append(f"{it.emoji} +{ch.reward_item_qty}× {it.name}")
                 after_slots = party_slots(badges)
                 if after_slots > before_slots:

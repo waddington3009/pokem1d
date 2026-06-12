@@ -25,31 +25,31 @@ class Challenge:
 CHALLENGES: list[Challenge] = [
     # ---------------- 8 GINÁSIOS (por tipo) ----------------
     Challenge("gym1", "Ginásio de Pedra", "Líder Rocha", "gym", "Insígnia Rocha", "🪨",
-              [("Geodude", 11), ("Graveler", 12), ("Onix", 14)], 600, "great-ball", 3),
+              [("Geodude", 11), ("Graveler", 12), ("Onix", 14)], 600, "greatball", 3),
     Challenge("gym2", "Ginásio de Água", "Líder Maré", "gym", "Insígnia Cascata", "💧",
               [("Staryu", 17), ("Wartortle", 18), ("Starmie", 20)], 900, "rare-candy", 2),
     Challenge("gym3", "Ginásio Elétrico", "Líder Tesla", "gym", "Insígnia Trovão", "⚡",
-              [("Pikachu", 23), ("Magneton", 24), ("Raichu", 26)], 1300, "ultra-ball", 2),
+              [("Pikachu", 23), ("Magneton", 24), ("Raichu", 26)], 1300, "ultraball", 2),
     Challenge("gym4", "Ginásio de Planta", "Líder Flora", "gym", "Insígnia Folha", "🍃",
               [("Gloom", 29), ("Victreebel", 30), ("Venusaur", 32)], 1700, "leaf-stone", 1),
     Challenge("gym5", "Ginásio de Fogo", "Líder Brasa", "gym", "Insígnia Chama", "🔥",
               [("Growlithe", 35), ("Magmar", 36), ("Arcanine", 38)], 2200, "rare-candy", 3),
     Challenge("gym6", "Ginásio Psíquico", "Líder Mente", "gym", "Insígnia Pântano", "🔮",
-              [("Kadabra", 41), ("Hypno", 42), ("Alakazam", 44)], 2700, "ultra-ball", 3),
+              [("Kadabra", 41), ("Hypno", 42), ("Alakazam", 44)], 2700, "ultraball", 3),
     Challenge("gym7", "Ginásio Fantasma", "Líder Sombra", "gym", "Insígnia Alma", "👻",
               [("Haunter", 46), ("Misdreavus", 47), ("Mismagius", 48), ("Gengar", 50)], 3300, "dusk-stone", 1),
     Challenge("gym8", "Ginásio Dragão", "Líder Drago", "gym", "Insígnia Dragão", "🐉",
-              [("Dragonair", 53), ("Gabite", 54), ("Dragonite", 56), ("Garchomp", 58)], 4200, "master-ball", 1),
+              [("Dragonair", 53), ("Gabite", 54), ("Dragonite", 56), ("Garchomp", 58)], 4200, "masterball", 1),
 
     # ---------------- ELITE DOS 4 ----------------
     Challenge("elite1", "Elite — Sombrio", "Elite Noir", "elite", "Selo Sombrio", "🌑",
-              [("Houndoom", 61), ("Honchkrow", 62), ("Tyranitar", 63), ("Hydreigon", 64)], 6000, "ultra-ball", 5),
+              [("Houndoom", 61), ("Honchkrow", 62), ("Tyranitar", 63), ("Hydreigon", 64)], 6000, "ultraball", 5),
     Challenge("elite2", "Elite — Aço", "Elite Ferra", "elite", "Selo de Aço", "⚙️",
               [("Steelix", 63), ("Aggron", 64), ("Metagross", 65), ("Bisharp", 66)], 7000, "rare-candy", 5),
     Challenge("elite3", "Elite — Lutador", "Elite Punho", "elite", "Selo do Punho", "🥊",
-              [("Machamp", 65), ("Hariyama", 66), ("Conkeldurr", 67), ("Lucario", 68)], 8000, "master-ball", 1),
+              [("Machamp", 65), ("Hariyama", 66), ("Conkeldurr", 67), ("Lucario", 68)], 8000, "masterball", 1),
     Challenge("elite4", "Elite — Gelo", "Elite Gélida", "elite", "Selo Glacial", "❄️",
-              [("Lapras", 67), ("Glalie", 68), ("Weavile", 69), ("Mamoswine", 70)], 9000, "master-ball", 1),
+              [("Lapras", 67), ("Glalie", 68), ("Weavile", 69), ("Mamoswine", 70)], 9000, "masterball", 1),
 
     # ---------------- CAMPEÃO ----------------
     Challenge("champion", "CAMPEÃO da Liga", "Campeão Lendário", "champion", "Troféu de Campeão", "👑",
