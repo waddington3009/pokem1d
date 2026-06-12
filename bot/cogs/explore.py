@@ -46,18 +46,20 @@ LOCATIONS = [
     "Pântano Sombrio", "Cume Nevado", "Ruínas Antigas", "Bosque Encantado",
 ]
 
-# Bônus de nível por raridade (lendários aparecem um pouco mais fortes)
-_LEVEL_RARITY_BONUS = {"rare": 4, "superrare": 8, "legendary": 14, "mythical": 18}
+# Bônus de nível por raridade (raros/lendários aparecem um pouco mais fortes)
+_LEVEL_RARITY_BONUS = {"rare": 2, "superrare": 4, "legendary": 6, "mythical": 8}
 
 
-def roll_encounter_level(species: Species) -> int:
-    """Nível MODESTO do selvagem — NÃO escala com o nível do jogador.
+def roll_encounter_level(species: Species, lead_level: int) -> int:
+    """Nível do selvagem — escala com o pokémon líder do jogador (moderado).
 
-    Assim, mesmo um treinador nível 100 encontra pokémon de nível baixo
-    (você captura fraco e treina), em vez de pegar nível 100 de graça.
+    Fica em torno de 90% do nível do seu líder (com variação), mais um bônus
+    por raridade. Assim, quanto mais forte você fica, mais fortes os selvagens —
+    mas nunca absurdamente acima de você. Esse MESMO nível é usado no card e na
+    batalha (sem inconsistência).
     """
-    base = random.randint(2, 28)
-    return min(70, base + _LEVEL_RARITY_BONUS.get(species.rarity, 0))
+    base = round(max(1, lead_level) * 0.9) + random.randint(-3, 3)
+    return max(1, min(100, base + _LEVEL_RARITY_BONUS.get(species.rarity, 0)))
 
 
 async def do_capture(
@@ -263,10 +265,9 @@ class EncounterView(discord.ui.View):
         await interaction.response.edit_message(embed=emb, view=self)
         self.stop()
 
-        from bot.cogs.battle import balanced_wild_level, build_wild_mon
-        lead = p1_team[0]
-        wild_level = balanced_wild_level(lead.level, lead.species.base_total, self.species.base_total)
-        p2_team = [build_wild_mon(self.species, wild_level, shiny=self.shiny)]
+        from bot.cogs.battle import build_wild_mon
+        # usa o MESMO nível mostrado no card (sem inconsistência)
+        p2_team = [build_wild_mon(self.species, self.level, shiny=self.shiny)]
         species, explorer_id, ctx = self.species, self.explorer_id, self.ctx
 
         async def on_finish(winner, loser):
@@ -360,12 +361,14 @@ class Explore(commands.Cog, name="Exploração"):
         # 3) encontro com pokémon
         species = pick_spawn_species()
         shiny = roll_shiny(settings.shiny_chance)
-        level = roll_encounter_level(species)
 
-        # registra como "visto" na Pokédex
+        # nível escala com o pokémon líder do jogador (e registra "visto")
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
+            selected = await helpers.get_selected(session, user)
+            lead_level = selected.level if selected else 5
             await helpers.update_pokedex(session, user.id, species.id, seen=1, caught=0)
+        level = roll_encounter_level(species, lead_level)
 
         view = EncounterView(self, ctx, species, shiny, level, location)
         view.message = await ctx.send(
