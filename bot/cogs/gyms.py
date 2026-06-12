@@ -46,7 +46,7 @@ class Gyms(commands.Cog, name="Liga"):
             else:
                 st = "🔒"
             lvl = max(l for _, l in c.team)
-            tag = "👑 " if c.kind == "champion" else ("⭐ " if c.kind == "elite" else "")
+            tag = {"champion": "👑 ", "elite": "⭐ ", "legend": "🌟 ", "myth": "💠 "}.get(c.kind, "")
             lines.append(f"{st} `{i + 1:>2}` {c.emoji} {tag}**{c.name}** — {c.leader} (Nv~{lvl})")
 
         emb = discord.Embed(
@@ -108,6 +108,7 @@ class Gyms(commands.Cog, name="Liga"):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
             badges = list(user.badges or [])
+            cooldowns = dict(user.gym_cooldowns or {})
 
         # trancado? precisa vencer o anterior
         if idx > 0 and CHALLENGES[idx - 1].key not in badges:
@@ -115,6 +116,16 @@ class Gyms(commands.Cog, name="Liga"):
             await ctx.send(embed=embeds.err_embed(
                 f"🔒 Trancado! Vença antes: **{prev.name}** ({prev.leader}). Use `{ctx.prefix}gyms`."))
             return
+
+        # já venceu e ainda está no cooldown? bloqueia (não dá pra re-batalhar/farmar)
+        if ch.key in badges:
+            remaining = REMATCH_CD - (time.time() - cooldowns.get(ch.key, 0))
+            if remaining > 0:
+                h, m = divmod(int(remaining) // 60, 60)
+                await ctx.send(embed=embeds.err_embed(
+                    f"⏳ Você já venceu **{ch.name}**! A revanche fica disponível em **{h}h {m}min**.",
+                    title="Líder em recuperação"))
+                return
 
         # carrega o time do jogador
         battle_cog = self.bot.get_cog("Batalha")
@@ -128,7 +139,8 @@ class Gyms(commands.Cog, name="Liga"):
 
         # monta o time do líder (PvE — IA)
         from bot.cogs.battle import build_wild_mon
-        leader_team = [build_wild_mon(POKEDEX.by_name(n), lv, name=n) for n, lv in ch.team]
+        leader_team = [build_wild_mon(POKEDEX.by_name(n), lv, name=n, perfect_iv=ch.perfect)
+                       for n, lv in ch.team]
 
         # intro
         time_txt = " ".join(f"{POKEDEX.by_name(n).name} Nv{lv}" for n, lv in ch.team)
@@ -181,7 +193,16 @@ class Gyms(commands.Cog, name="Liga"):
                     lines.append(f"📈 Seu time aumentou para **{after_slots} slots**!")
                 if ch.kind == "champion":
                     lines.append("👑 **VOCÊ É O CAMPEÃO DA LIGA!** Lenda absoluta! 🏆")
-                title = ("👑 CAMPEÃO!" if ch.kind == "champion" else "🏆 Vitória no desafio!")
+                elif ch.kind == "myth":
+                    lines.append("💠 **VOCÊ DOMINOU A CÂMARA DOS MÍTICOS!** Feito quase impossível! 🌌")
+                elif ch.kind == "legend":
+                    lines.append("🌟 Um covil lendário tombou diante de você!")
+                title = {"champion": "👑 CAMPEÃO!", "myth": "💠 LENDA VIVA!",
+                         "legend": "🌟 Covil conquistado!"}.get(ch.kind, "🏆 Vitória no desafio!")
+                # inicia o cooldown de revanche já na 1ª vitória (anti-farm)
+                cds = dict(user.gym_cooldowns or {})
+                cds[ch.key] = time.time()
+                user.gym_cooldowns = cds
                 extra = "\n".join(lines)
             else:
                 # revanche: moedas com cooldown

@@ -20,6 +20,7 @@ class Challenge:
     reward_coins: int
     reward_item: str | None = None
     reward_item_qty: int = 1
+    perfect: bool = False          # líder com IVs perfeitos (31) — desafios endgame
 
 
 CHALLENGES: list[Challenge] = [
@@ -55,6 +56,19 @@ CHALLENGES: list[Challenge] = [
     Challenge("champion", "CAMPEÃO da Liga", "Campeão Lendário", "champion", "Troféu de Campeão", "👑",
               [("Arcanine", 73), ("Gengar", 74), ("Tyranitar", 74),
                ("Metagross", 75), ("Garchomp", 76), ("Dragonite", 77)], 25000, "iv-crystal", 1),
+
+    # ---------------- ENDGAME: COVIS LENDÁRIOS + CÂMARA DOS MÍTICOS ----------------
+    Challenge("lair1", "Covil Lendário I", "Guardião dos Céus", "legend", "Selo Alado", "🦅",
+              [("Articuno", 80), ("Zapdos", 80), ("Moltres", 82)], 35000, "masterball", 2),
+    Challenge("lair2", "Covil Lendário II", "Senhor das Eras", "legend", "Selo Temporal", "⏳",
+              [("Dialga", 84), ("Palkia", 85), ("Giratina", 86)], 50000, "iv-crystal", 1),
+    Challenge("lair3", "Trono dos Titãs", "Soberano Primordial", "legend", "Selo Divino", "🌠",
+              [("Kyogre", 88), ("Groudon", 88), ("Lugia", 89), ("Rayquaza", 90), ("Mewtwo", 90)],
+              80000, "masterball", 3),
+    Challenge("myth", "A CÂMARA DOS MÍTICOS", "Entidade Mítica", "myth", "Coroa Mítica", "💠",
+              [("Mew", 100), ("Celebi", 100), ("Jirachi", 100),
+               ("Darkrai", 100), ("Genesect", 100), ("Arceus", 100)],
+              250000, "iv-crystal", 3, perfect=True),
 ]
 
 CHALLENGES_BY_KEY = {c.key: c for c in CHALLENGES}

@@ -75,9 +75,9 @@ class WildMon:
     iv_spe: int
 
 
-def make_wild(species: Species, level: int) -> WildMon:
-    # IVs do selvagem ficam um pouco abaixo do teto -> leve vantagem para o jogador
-    iv = lambda: random.randint(0, 25)
+def make_wild(species: Species, level: int, perfect: bool = False) -> WildMon:
+    # IVs do selvagem ficam um pouco abaixo do teto (perfect=True -> 31, p/ líderes endgame)
+    iv = (lambda: 31) if perfect else (lambda: random.randint(0, 25))
     return WildMon(
         id=-1, species_id=species.id, level=level, nature="Hardy", shiny=False,
         iv_hp=iv(), iv_atk=iv(), iv_def=iv(), iv_spa=iv(), iv_spd=iv(), iv_spe=iv(),
@@ -102,9 +102,9 @@ def pick_balanced_wild_species(lead_species: Species, band: int = 70) -> Species
 
 
 def build_wild_mon(species: Species, level: int, name: str | None = None,
-                   shiny: bool = False) -> BattleMon:
+                   shiny: bool = False, perfect_iv: bool = False) -> BattleMon:
     """Cria um BattleMon para um encontro selvagem (PvE/exploração)."""
-    wild = make_wild(species, level)
+    wild = make_wild(species, level, perfect=perfect_iv)
     stats = compute_all_stats(species, wild)
     mhp = max_hp(species, wild)
     stats, mhp = apply_rarity_bonus(stats, mhp, species.rarity)
