@@ -91,6 +91,26 @@ class Pokedex(commands.Cog, name="Coleção"):
             await ctx.send(embed=embeds.err_embed("Nenhum pokémon encontrado com esses filtros."))
             return
 
+        # ---- grade visual (imagem) — requer Pillow; senão cai pra lista de texto ----
+        try:
+            from bot.utils.image_paginator import ImageGridPaginator
+        except Exception:  # noqa: BLE001
+            ImageGridPaginator = None
+
+        if ImageGridPaginator is not None:
+            entries = [
+                (sp.id, m.shiny, sp.name, f"#{m.idx}  Nv{m.level}")
+                for m, sp in rows
+            ]
+            await ImageGridPaginator(
+                ctx, entries,
+                title=f"📦 Pokémon de {ctx.author.display_name} ({len(rows)})",
+                footer="✨ dourado = shiny • use p!info <#> para detalhes",
+                per_page=9, cols=3,
+            ).start()
+            return
+
+        # ---- fallback: lista de texto ----
         lines = []
         for m, sp in rows:
             marks = ""
@@ -104,15 +124,13 @@ class Pokedex(commands.Cog, name="Coleção"):
                 f"`#{m.idx:>3}` {RARITY_EMOJI.get(sp.rarity,'')} **{sp.name}** "
                 f"• Nv {m.level} • IV {m.iv_percent:.1f}% {marks}"
             )
-
-        pages = []
-        for i, group in enumerate(chunk(lines, 15)):
-            emb = discord.Embed(
+        pages = [
+            discord.Embed(
                 title=f"📦 Pokémon de {ctx.author.display_name} ({len(rows)})",
-                description="\n".join(group),
-                color=settings.color_info,
+                description="\n".join(group), color=settings.color_info,
             )
-            pages.append(emb)
+            for group in chunk(lines, 15)
+        ]
         await Paginator(pages, ctx.author.id).start(ctx)
 
     # ------------------------------------------------------------------

@@ -12,5 +12,5 @@ python-dotenv>=1.0.0
 # ---- Utilidades ----
 aiohttp>=3.9.0             # já vem com discord.py, listado p/ clareza
 
-# ---- Opcional: geração de imagens (cards) ----
-# Pillow>=10.0.0           # descomente se quiser cards renderizados
+# ---- Geração de imagens (grade visual da coleção) ----
+Pillow>=10.2.0            # load_default(size=...) precisa de >=10.1
