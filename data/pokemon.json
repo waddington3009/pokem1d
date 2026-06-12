@@ -12951,5 +12951,22 @@
     "rarity": "mythical",
     "mythical": true,
     "legendary": true
+  },
+  {
+    "id": 658,
+    "name": "Greninja",
+    "types": [
+      "water",
+      "dark"
+    ],
+    "base_stats": {
+      "hp": 72,
+      "atk": 95,
+      "def": 67,
+      "spa": 103,
+      "spd": 71,
+      "spe": 122
+    },
+    "rarity": "superrare"
   }
 ]

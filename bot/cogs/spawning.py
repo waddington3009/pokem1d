@@ -9,9 +9,10 @@ import discord
 from discord.ext import commands, tasks
 
 from config import settings
+from bot.data.items import get_item
 from bot.data.pokemon_data import POKEDEX, Species
 from bot.database.db import get_or_create_guild, session_scope
-from bot.utils import embeds
+from bot.utils import embeds, helpers
 from bot.utils.rarity import pick_spawn_species, roll_shiny
 
 
@@ -25,11 +26,43 @@ class ActiveSpawn:
     spawned_at: float = field(default_factory=time.time)
 
 
+@dataclass
+class LootBox:
+    reward: tuple              # ("coins", n) | ("item", key, qty)
+    channel_id: int
+    message_id: int | None = None
+    spawned_at: float = field(default_factory=time.time)
+
+
+# Tabela de itens do loot: (item_key, qtd_min, qtd_max, peso)
+LOOT_ITEMS = [
+    ("greatball", 2, 6, 28),
+    ("ultraball", 1, 3, 16),
+    ("rare-candy", 1, 4, 16),
+    ("xp-booster", 2, 6, 16),
+    ("incense", 1, 1, 8),
+    ("fire-stone", 1, 1, 3),
+    ("water-stone", 1, 1, 3),
+    ("thunder-stone", 1, 1, 3),
+    ("masterball", 1, 1, 2),
+]
+
+
+def roll_loot_reward() -> tuple:
+    """Sorteia o prêmio da caixa: moedas (>1000) ou um item."""
+    if random.random() < settings.loot_coins_chance:
+        return ("coins", random.randint(settings.loot_coins_min, settings.loot_coins_max))
+    key, lo, hi, _ = random.choices(LOOT_ITEMS, weights=[x[3] for x in LOOT_ITEMS], k=1)[0]
+    return ("item", key, random.randint(lo, hi))
+
+
 class Spawning(commands.Cog, name="Spawn"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         # spawns ativos por canal (acessado pela cog de captura)
         bot.active_spawns: dict[int, ActiveSpawn] = {}
+        # caixas de loot ativas por canal
+        bot.active_loot: dict[int, LootBox] = {}
         # contadores e limiares de mensagens por canal
         self.counters: dict[int, int] = {}
         self.thresholds: dict[int, int] = {}
@@ -103,13 +136,17 @@ class Spawning(commands.Cog, name="Spawn"):
             perms = target.permissions_for(me)
             if not (perms.send_messages and perms.embed_links):
                 return
-        # cooldown e spawn já ativo
+        # cooldown e spawn/loot já ativo
         if time.time() - self.last_spawn.get(target.id, 0) < settings.spawn_cooldown_seconds:
             return
-        if target.id in self.bot.active_spawns:
+        if target.id in self.bot.active_spawns or target.id in self.bot.active_loot:
             return
 
-        await self.spawn_pokemon(target)
+        # rola: às vezes cai uma caixa de loot em vez de um pokémon
+        if random.random() < settings.loot_chance:
+            await self.spawn_loot(target)
+        else:
+            await self.spawn_pokemon(target)
 
     # ------------------------------------------------------------------
     async def spawn_pokemon(
@@ -134,6 +171,27 @@ class Spawning(commands.Cog, name="Spawn"):
         self.bot.active_spawns[channel.id] = spawn
         self.last_spawn[channel.id] = time.time()
         return spawn
+
+    # ------------------------------------------------------------------
+    async def spawn_loot(self, channel: discord.TextChannel) -> LootBox | None:
+        """Faz uma caixa de loot cair no canal."""
+        reward = roll_loot_reward()
+        prefix = self.bot.prefix_cache.get(channel.guild.id, settings.default_prefix)
+        embed = discord.Embed(
+            title="📦 Uma caixa de mantimentos caiu do céu!",
+            description=f"Rápido! Use `{prefix}coletar` para abrir antes dos outros! 🎁",
+            color=settings.color_default,
+        )
+        embed.set_image(url=settings.loot_image_url)
+        embed.set_footer(text="O primeiro a coletar leva tudo!")
+        try:
+            msg = await channel.send(embed=embed)
+        except discord.Forbidden:
+            return None
+        box = LootBox(reward=reward, channel_id=channel.id, message_id=msg.id)
+        self.bot.active_loot[channel.id] = box
+        self.last_spawn[channel.id] = time.time()
+        return box
 
     # ------------------------------------------------------------------
     @tasks.loop(seconds=30)
@@ -161,6 +219,24 @@ class Spawning(commands.Cog, name="Spawn"):
             except discord.HTTPException:
                 pass
 
+        # expira caixas de loot não coletadas
+        expired_loot = [
+            cid for cid, b in list(self.bot.active_loot.items())
+            if now - b.spawned_at > settings.loot_despawn_seconds
+        ]
+        for cid in expired_loot:
+            box = self.bot.active_loot.pop(cid, None)
+            channel = self.bot.get_channel(cid)
+            if box is None or channel is None:
+                continue
+            try:
+                await channel.send(embed=discord.Embed(
+                    description="📦 A caixa de mantimentos desapareceu... ninguém coletou a tempo.",
+                    color=settings.color_error,
+                ))
+            except discord.HTTPException:
+                pass
+
     @despawn_loop.before_loop
     async def before_despawn(self) -> None:
         await self.bot.wait_until_ready()
@@ -176,6 +252,54 @@ class Spawning(commands.Cog, name="Spawn"):
             return
         self.bot.active_spawns.pop(ctx.channel.id, None)
         await self.spawn_pokemon(ctx.channel, species)
+
+    @commands.command(name="forceloot", aliases=["floot"])
+    @commands.is_owner()
+    async def forceloot(self, ctx: commands.Context) -> None:
+        """[Owner] Força uma caixa de loot a cair no canal."""
+        self.bot.active_loot.pop(ctx.channel.id, None)
+        await self.spawn_loot(ctx.channel)
+
+    # ------------------------------------------------------------------
+    @commands.command(name="coletar", aliases=["loot", "collect", "abrir"])
+    @commands.guild_only()
+    @commands.cooldown(1, 1.5, commands.BucketType.user)
+    async def coletar(self, ctx: commands.Context) -> None:
+        """Coleta a caixa de loot ativa no canal (o primeiro leva!)."""
+        box = self.bot.active_loot.get(ctx.channel.id)
+        if box is None:
+            await ctx.send(embed=embeds.err_embed(
+                "Não há nenhuma caixa de loot por aqui agora. Fique de olho no chat!"))
+            return
+        # remove imediatamente (anti-corrida): só o primeiro coleta
+        self.bot.active_loot.pop(ctx.channel.id, None)
+
+        reward = box.reward
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, ctx.author.id)
+            if reward[0] == "coins":
+                user.coins += reward[1]
+                desc = f"💰 **{reward[1]:,} PokéCoins**!"
+            else:
+                _, key, qty = reward
+                await helpers.add_item(session, user.id, key, qty)
+                it = get_item(key)
+                emoji = it.emoji if it else "🎁"
+                nome = it.name if it else key
+                desc = f"{emoji} **{qty}× {nome}**!"
+
+        await ctx.send(embed=embeds.ok_embed(
+            f"🎁 {ctx.author.display_name} abriu a caixa!", f"Recebeu: {desc}"))
+
+        if box.message_id:
+            try:
+                msg = await ctx.channel.fetch_message(box.message_id)
+                await msg.edit(embed=discord.Embed(
+                    description=f"📦 Caixa coletada por **{ctx.author.display_name}**! {desc}",
+                    color=settings.color_success,
+                ))
+            except discord.HTTPException:
+                pass
 
 
 async def setup(bot: commands.Bot) -> None:

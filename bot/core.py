@@ -37,6 +37,7 @@ EXTENSIONS = [
     "bot.cogs.battle",
     "bot.cogs.progression",
     "bot.cogs.general",
+    "bot.cogs.owner",
 ]
 
 
@@ -115,7 +116,9 @@ class PokeBot(commands.Bot):
         # DMs e comandos de admin/utilitários passam em qualquer lugar
         if ctx.guild is None:
             return True
-        if ctx.cog and ctx.cog.qualified_name == "Administração":
+        if await self.is_owner(ctx.author):
+            return True
+        if ctx.cog and ctx.cog.qualified_name in ("Administração", "Dono"):
             return True
         if ctx.command and ctx.command.qualified_name in ALWAYS_ALLOWED:
             return True

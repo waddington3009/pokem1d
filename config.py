@@ -54,6 +54,17 @@ class Settings:
     explore_coins_min: int = 30
     explore_coins_max: int = 140
 
+    # Loot (caixa que cai junto com os spawns)
+    loot_chance: float = 0.18          # chance do spawn ser uma caixa de loot
+    loot_coins_chance: float = 0.6     # no loot, chance de vir moedas (senão item)
+    loot_coins_min: int = 1000         # mínimo de moedas (sempre > 1000)
+    loot_coins_max: int = 6000
+    loot_despawn_seconds: int = 300    # a caixa some em 5 min se ninguém coletar
+    # imagem/gif da caixa — troque por qualquer URL (suba no Discord e copie o link)
+    loot_image_url: str = (
+        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f381.png"
+    )
+
     # Economia
     daily_base: int = 200
     daily_streak_bonus: int = 50       # bônus por dia de streak
