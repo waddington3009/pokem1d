@@ -22,6 +22,7 @@ LEADERBOARD_TYPES = {
     "coins": ("coins", "💰 Mais Ricos", "PokéCoins"),
     "battles": ("battles_won", "⚔️ Mais Vitórias", "vitórias"),
     "level": ("trainer_level", "🎖️ Maiores Níveis", "nível"),
+    "badges": ("badge_count", "🏆 Mais Insígnias (Liga)", "insígnias"),
 }
 
 
@@ -85,6 +86,8 @@ class Progression(commands.Cog, name="Progressão"):
             "capturas": "caught", "catches": "caught", "captured": "caught",
             "nivel": "level", "nível": "level", "levels": "level", "lv": "level",
             "shinies": "shiny",
+            "insignias": "badges", "insígnias": "badges", "gym": "badges",
+            "gyms": "badges", "liga": "badges", "ginasios": "badges",
         }
         tipo = _aliases.get(tipo, tipo)
         if tipo not in LEADERBOARD_TYPES:

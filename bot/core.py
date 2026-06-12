@@ -37,6 +37,7 @@ EXTENSIONS = [
     "bot.cogs.battle",
     "bot.cogs.progression",
     "bot.cogs.general",
+    "bot.cogs.gyms",
     "bot.cogs.owner",
 ]
 

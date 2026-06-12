@@ -12,6 +12,7 @@ from discord.ext import commands
 log = logging.getLogger("pokebot")
 
 from config import settings
+from bot.data.gyms import party_slots
 from bot.data.moves import MOVES, Move, get_move
 from bot.data.pokemon_data import POKEDEX, Species
 from bot.data.types import TYPE_EMOJI, effectiveness
@@ -140,7 +141,7 @@ def ai_choose_move(attacker: BattleMon, defender: BattleMon) -> Move:
 class BattleView(discord.ui.View):
     def __init__(self, cog: "Battle", ctx, p1_team: list[BattleMon], p2_team: list[BattleMon],
                  p1_id: int, p2_id: int | None, on_finish=None,
-                 battle_channel=None, temp_channel=None):
+                 battle_channel=None, temp_channel=None, opponent_name=None):
         super().__init__(timeout=180)
         self.cog = cog
         self.ctx = ctx
@@ -169,8 +170,8 @@ class BattleView(discord.ui.View):
         m1 = guild.get_member(p1_id) if p1_id else None
         self._names = {
             "p1": m1.display_name if m1 else "Treinador 1",
-            "p2": ("Selvagem" if self.is_pve
-                   else (guild.get_member(p2_id).display_name if guild.get_member(p2_id) else "Treinador 2")),
+            "p2": (opponent_name or ("Selvagem" if self.is_pve
+                   else (guild.get_member(p2_id).display_name if guild.get_member(p2_id) else "Treinador 2"))),
         }
         self._build()
 
@@ -574,9 +575,10 @@ class Battle(commands.Cog, name="Batalha"):
         return (team[0] if team else None), err
 
     async def launch_battle(self, ctx, p1_team, p2_team, p1_id, p2_id, on_finish=None,
-                            battle_channel=None, temp_channel=None) -> BattleView:
+                            battle_channel=None, temp_channel=None, opponent_name=None) -> BattleView:
         view = BattleView(self, ctx, p1_team, p2_team, p1_id, p2_id, on_finish=on_finish,
-                          battle_channel=battle_channel, temp_channel=temp_channel)
+                          battle_channel=battle_channel, temp_channel=temp_channel,
+                          opponent_name=opponent_name)
         await view.start()
         return view
 
@@ -744,6 +746,7 @@ class Battle(commands.Cog, name="Batalha"):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
             party = list(user.party or [])
+            pmax = party_slots(user.badges)
             linhas = []
             for pos, idx in enumerate(party, 1):
                 poke = await helpers.get_pokemon_by_idx(session, user.id, idx)
@@ -757,11 +760,11 @@ class Battle(commands.Cog, name="Batalha"):
         if not linhas:
             await ctx.send(embed=embeds.info_text(
                 f"Seu time está vazio — as batalhas usam seu pokémon **selecionado**.\n"
-                f"Monte um time com `{ctx.prefix}party add <número>` (até {PARTY_MAX}).",
+                f"Monte um time com `{ctx.prefix}party add <número>` (até {pmax}).",
                 title="🎒 Seu time",
             ))
             return
-        emb = embeds.info_text("\n".join(linhas), title=f"🎒 Seu time ({len(linhas)}/{PARTY_MAX})")
+        emb = embeds.info_text("\n".join(linhas), title=f"🎒 Seu time ({len(linhas)}/{pmax})")
         emb.set_footer(text=f"{ctx.prefix}party add/remove <#> • {ctx.prefix}party clear")
         await ctx.send(embed=emb)
 
@@ -775,9 +778,10 @@ class Battle(commands.Cog, name="Batalha"):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
             party = list(user.party or [])
+            pmax = party_slots(user.badges)
             for n in dict.fromkeys(numeros):  # remove duplicatas mantendo a ordem
-                if len(party) >= PARTY_MAX:
-                    skipped.append(f"#{n} (time cheio)")
+                if len(party) >= pmax:
+                    skipped.append(f"#{n} (time cheio: {pmax})")
                     continue
                 if n in party:
                     skipped.append(f"#{n} (já no time)")
@@ -792,7 +796,7 @@ class Battle(commands.Cog, name="Batalha"):
             total = len(party)
         partes = []
         if added:
-            partes.append("✅ Adicionados: " + ", ".join(f"#{n}" for n in added) + f" (time {total}/{PARTY_MAX})")
+            partes.append("✅ Adicionados: " + ", ".join(f"#{n}" for n in added) + f" (time {total}/{pmax})")
         if skipped:
             partes.append("⚠️ Ignorados: " + ", ".join(skipped))
         msg = "\n".join(partes)
@@ -815,12 +819,13 @@ class Battle(commands.Cog, name="Batalha"):
     @party.command(name="set", aliases=["definir"])
     async def party_set(self, ctx: commands.Context, *numeros: int) -> None:
         """Define o time inteiro de uma vez. Uso: party set 1 2 3."""
-        numeros = list(dict.fromkeys(numeros))[:PARTY_MAX]  # sem duplicatas, máx 3
+        numeros = list(dict.fromkeys(numeros))
         if not numeros:
             await ctx.send(embed=embeds.err_embed(f"Informe os números. Ex.: `{ctx.prefix}party set 1 2 3`."))
             return
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
+            numeros = numeros[:party_slots(user.badges)]  # respeita o limite por insígnias
             valid = []
             for n in numeros:
                 if await helpers.get_pokemon_by_idx(session, user.id, n):

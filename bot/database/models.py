@@ -80,6 +80,11 @@ class User(Base):
     )
     achievements: Mapped[list] = mapped_column(JSON, default=list)
 
+    # Liga / Ginásios
+    badges: Mapped[list] = mapped_column(JSON, default=list)        # chaves dos desafios vencidos
+    badge_count: Mapped[int] = mapped_column(Integer, default=0)    # p/ ranking
+    gym_cooldowns: Mapped[dict] = mapped_column(JSON, default=dict)  # revanche: key -> epoch
+
     language: Mapped[str | None] = mapped_column(String(4), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
