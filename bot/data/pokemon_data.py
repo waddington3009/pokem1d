@@ -95,6 +95,19 @@ class Pokedex:
             moves = WEAK_MOVESETS[entry["id"]]
         else:
             moves = build_moveset(types, entry.get("moves"))
+            # lendários/míticos: mantêm 2 STAB + ganham cobertura quase universal
+            # (Earthquake + Dazzling Gleam) para nunca ficarem "paredados" por tipo
+            if entry.get("legendary") or entry.get("mythical"):
+                final: list[str] = []
+                for k in moves[:2] + ["earthquake", "dazzling-gleam"]:
+                    if k not in final:
+                        final.append(k)
+                for k in moves:
+                    if len(final) >= 4:
+                        break
+                    if k not in final:
+                        final.append(k)
+                moves = final[:4]
         sp = Species(
             id=entry["id"],
             name=entry["name"],

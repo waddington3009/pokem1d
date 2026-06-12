@@ -91,18 +91,18 @@ class Pokedex(commands.Cog, name="Coleção"):
             await ctx.send(embed=embeds.err_embed("Nenhum pokémon encontrado com esses filtros."))
             return
 
-        # ---- grade 2x2 de GIFs animados ----
+        # ---- grade visual estática (sprites cheios, SEM corte) ----
         try:
-            from bot.utils.gif_paginator import GifGridPaginator
+            from bot.utils.image_paginator import ImageGridPaginator
             entries = [
-                (sp.id, m.shiny, sp.name, f"#{m.idx} · Nv{m.level} · IV {m.iv_percent:.0f}%")
+                (sp.id, m.shiny, sp.name, f"#{m.idx}  Nv{m.level}")
                 for m, sp in rows
             ]
-            await GifGridPaginator(
+            await ImageGridPaginator(
                 ctx, entries,
                 title=f"📦 Pokémon de {ctx.author.display_name} ({len(rows)})",
-                footer="✨ shiny • use p!info <#> para detalhes",
-                per_page=4,
+                footer="✨ dourado = shiny • use p!info <#> para detalhes",
+                per_page=9, cols=3,
             ).start()
             return
         except Exception:  # noqa: BLE001

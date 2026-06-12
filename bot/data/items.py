@@ -27,6 +27,7 @@ class Item:
     shiny_bonus: float = 1.0    # multiplicador na chance de shiny
     xp_amount: int = 0          # booster de XP
     level_amount: int = 0       # rare candy
+    iv_boost: int = 0           # +N em cada IV (item premium)
     lure_minutes: int = 0       # duração do incenso
     stone: str | None = None    # tipo de pedra p/ evolução
 
@@ -91,6 +92,12 @@ ITEMS: dict[str, Item] = {
         "Concede 100 XP ao pokémon selecionado.",
         xp_amount=100, sellable=False,
     ),
+    "iv-crystal": Item(
+        "iv-crystal", "Cristal de Potencial", "💠", "booster", 60000,
+        "💎 PREMIUM: aumenta **+1 em cada IV** do pokémon (até o máximo de 31). "
+        "Use várias vezes para aperfeiçoar um favorito.",
+        iv_boost=1, sellable=False,
+    ),
 }
 
 # Itens que aparecem na loja (ordem de exibição)
@@ -98,7 +105,7 @@ SHOP_ORDER = [
     "pokeball", "greatball", "ultraball", "masterball",
     "fire-stone", "water-stone", "thunder-stone", "leaf-stone", "moon-stone", "sun-stone",
     "dawn-stone", "dusk-stone", "shiny-stone",
-    "incense", "rare-candy", "xp-booster",
+    "incense", "rare-candy", "xp-booster", "iv-crystal",
 ]
 
 

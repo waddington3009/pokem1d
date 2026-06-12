@@ -20,6 +20,7 @@ from bot.database.models import Pokemon
 from bot.game.battle_engine import (
     BattleMon,
     apply_move,
+    apply_rarity_bonus,
     build_battle_mon,
     can_act,
     effective_speed,
@@ -104,12 +105,14 @@ def build_wild_mon(species: Species, level: int, name: str | None = None,
     """Cria um BattleMon para um encontro selvagem (PvE/exploração)."""
     wild = make_wild(species, level)
     stats = compute_all_stats(species, wild)
+    mhp = max_hp(species, wild)
+    stats, mhp = apply_rarity_bonus(stats, mhp, species.rarity)
     moves = [get_move(k) for k in species.moves if get_move(k)]
     return BattleMon(
         species=species, level=level, name=name or f"{species.name} selvagem",
         owner_id=None, pokemon_db_id=None, shiny=shiny,
         base_stats=stats, moves=(moves or [MOVES["tackle"]])[:4],
-        max_hp=max_hp(species, wild),
+        max_hp=mhp,
     )
 
 
@@ -388,6 +391,12 @@ class BattleView(discord.ui.View):
 
     async def _resolve(self, interaction: discord.Interaction) -> None:
         self._apply_round()
+        # na arena privada, posta a narração do turno no chat (play-by-play)
+        if self.temp_channel is not None and self.log:
+            try:
+                await self.battle_channel.send("📣 " + " ".join(self.log))
+            except discord.HTTPException:
+                pass
         await self._post_resolve(interaction)
 
     async def _post_resolve(self, interaction: discord.Interaction) -> None:

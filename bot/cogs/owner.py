@@ -22,6 +22,13 @@ class Owner(commands.Cog, name="Dono"):
             raise commands.NotOwner()
         return True
 
+    async def cog_before_invoke(self, ctx: commands.Context) -> None:
+        # apaga a mensagem do comando de admin (não polui o chat / esconde o que foi dado)
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+
     # ------------------------------------------------------------------
     @commands.command(name="addpokemon", aliases=["givepokemon", "darpokemon"])
     @commands.guild_only()

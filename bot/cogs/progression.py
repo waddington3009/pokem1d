@@ -78,6 +78,15 @@ class Progression(commands.Cog, name="Progressão"):
     async def leaderboard(self, ctx: commands.Context, tipo: str = "caught") -> None:
         """Ranking de jogadores. Tipos: caught, shiny, coins, battles, level."""
         tipo = tipo.lower()
+        _aliases = {
+            "vitorias": "battles", "vitórias": "battles", "wins": "battles",
+            "win": "battles", "duelos": "battles", "duels": "battles", "duel": "battles",
+            "moedas": "coins", "dinheiro": "coins", "money": "coins",
+            "capturas": "caught", "catches": "caught", "captured": "caught",
+            "nivel": "level", "nível": "level", "levels": "level", "lv": "level",
+            "shinies": "shiny",
+        }
+        tipo = _aliases.get(tipo, tipo)
         if tipo not in LEADERBOARD_TYPES:
             await ctx.send(embed=embeds.err_embed(
                 f"Tipos válidos: {', '.join(LEADERBOARD_TYPES)}."

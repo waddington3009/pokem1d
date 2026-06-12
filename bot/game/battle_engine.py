@@ -11,6 +11,19 @@ from bot.utils.stats import compute_all_stats, max_hp
 
 STAGE_KEYS = ["atk", "def", "spa", "spd", "spe"]
 
+# Bônus de stats em batalha por raridade (raridade = poder real, além do BST).
+RARITY_BATTLE_MULT = {
+    "common": 1.0, "uncommon": 1.0, "rare": 1.03,
+    "superrare": 1.07, "legendary": 1.15, "mythical": 1.22,
+}
+
+
+def apply_rarity_bonus(stats: dict[str, int], hp: int, rarity: str) -> tuple[dict[str, int], int]:
+    m = RARITY_BATTLE_MULT.get(rarity, 1.0)
+    if m == 1.0:
+        return stats, hp
+    return {k: int(v * m) for k, v in stats.items()}, int(hp * m)
+
 
 def stage_multiplier(stage: int) -> float:
     stage = max(-6, min(6, stage))
@@ -58,13 +71,15 @@ def build_battle_mon(
 ) -> BattleMon:
     """Cria um BattleMon a partir de um registro Pokemon do banco."""
     stats = compute_all_stats(species, pokemon)
+    mhp = max_hp(species, pokemon)
+    stats, mhp = apply_rarity_bonus(stats, mhp, species.rarity)
     moves = [get_move(k) for k in species.moves if get_move(k)]
     if not moves:
         moves = [MOVES["tackle"]]
     return BattleMon(
         species=species, level=pokemon.level, name=name,
         owner_id=owner_id, pokemon_db_id=pokemon.id, shiny=pokemon.shiny,
-        base_stats=stats, moves=moves[:4], max_hp=max_hp(species, pokemon),
+        base_stats=stats, moves=moves[:4], max_hp=mhp,
     )
 
 

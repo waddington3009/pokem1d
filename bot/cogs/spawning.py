@@ -246,6 +246,11 @@ class Spawning(commands.Cog, name="Spawn"):
     @commands.is_owner()
     async def forcespawn(self, ctx: commands.Context, *, nome: str | None = None) -> None:
         """[Owner] Força o spawn de um pokémon (opcionalmente por nome)."""
+        # apaga o comando para não revelar o nome (evento surpresa)
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
         species = POKEDEX.by_name(nome) if nome else None
         if nome and species is None:
             await ctx.send(embed=embeds.err_embed(f"Espécie `{nome}` não encontrada."))
@@ -257,6 +262,10 @@ class Spawning(commands.Cog, name="Spawn"):
     @commands.is_owner()
     async def forceloot(self, ctx: commands.Context) -> None:
         """[Owner] Força uma caixa de loot a cair no canal."""
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
         self.bot.active_loot.pop(ctx.channel.id, None)
         await self.spawn_loot(ctx.channel)
 

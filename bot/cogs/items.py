@@ -126,7 +126,13 @@ class Items(commands.Cog, name="Itens"):
                 use_qty = max(1, min(qty, inv.get(it.key, 0)))
                 await helpers.take_item(session, user.id, it.key, use_qty)
                 plural = f" (usou {use_qty}×)" if use_qty > 1 else ""
-                if it.level_amount:
+                if it.iv_boost:
+                    before = poke.iv_percent
+                    for attr in ("iv_hp", "iv_atk", "iv_def", "iv_spa", "iv_spd", "iv_spe"):
+                        setattr(poke, attr, min(31, getattr(poke, attr) + it.iv_boost * use_qty))
+                    resultado = (f"💠 Os IVs de **{species.name}** subiram de "
+                                 f"**{before:.1f}%** para **{poke.iv_percent:.1f}%**{plural}.")
+                elif it.level_amount:
                     before = poke.level
                     poke.level = min(100, poke.level + it.level_amount * use_qty)
                     resultado = f"**{species.name}** subiu do nível {before} para **{poke.level}**{plural}."
