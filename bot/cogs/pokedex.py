@@ -91,24 +91,22 @@ class Pokedex(commands.Cog, name="Coleção"):
             await ctx.send(embed=embeds.err_embed("Nenhum pokémon encontrado com esses filtros."))
             return
 
-        # ---- grade visual (imagem) — requer Pillow; senão cai pra lista de texto ----
+        # ---- grade 2x2 de GIFs animados ----
         try:
-            from bot.utils.image_paginator import ImageGridPaginator
-        except Exception:  # noqa: BLE001
-            ImageGridPaginator = None
-
-        if ImageGridPaginator is not None:
+            from bot.utils.gif_paginator import GifGridPaginator
             entries = [
-                (sp.id, m.shiny, sp.name, f"#{m.idx}  Nv{m.level}")
+                (sp.id, m.shiny, sp.name, f"#{m.idx} · Nv{m.level} · IV {m.iv_percent:.0f}%")
                 for m, sp in rows
             ]
-            await ImageGridPaginator(
+            await GifGridPaginator(
                 ctx, entries,
                 title=f"📦 Pokémon de {ctx.author.display_name} ({len(rows)})",
-                footer="✨ dourado = shiny • use p!info <#> para detalhes",
-                per_page=9, cols=3,
+                footer="✨ shiny • use p!info <#> para detalhes",
+                per_page=4,
             ).start()
             return
+        except Exception:  # noqa: BLE001
+            pass
 
         # ---- fallback: lista de texto ----
         lines = []
@@ -310,32 +308,43 @@ class Pokedex(commands.Cog, name="Coleção"):
         caught = sum(1 for e in entries.values() if e.caught > 0)
         percent = caught / total * 100 if total else 0
 
+        # ---- grade 3x3 estática (capturados coloridos, faltantes em silhueta) ----
+        try:
+            from bot.utils.image_paginator import ImageGridPaginator
+            grid = []
+            for sp in POKEDEX.all():
+                e = entries.get(sp.id)
+                if e and e.caught > 0:
+                    grid.append((sp.id, False, sp.name, f"#{sp.id:03d}", False))
+                elif e and e.seen > 0:
+                    grid.append((sp.id, False, sp.name, f"#{sp.id:03d} • visto", True))
+                else:
+                    grid.append((sp.id, False, "???", f"#{sp.id:03d}", True))
+            await ImageGridPaginator(
+                ctx, grid,
+                title=f"📕 Pokédex — {caught}/{total} ({percent:.0f}%)",
+                footer="colorido = capturado • cinza = falta",
+                per_page=9, cols=3,
+            ).start()
+            return
+        except Exception:  # noqa: BLE001
+            pass
+
+        # ---- fallback: lista de texto ----
         header = (
             f"**{caught}/{total}** espécies capturadas (**{percent:.1f}%**)\n"
             f"{'🟩' * int(percent // 10)}{'⬜' * (10 - int(percent // 10))}\n​"
         )
-
         lines = []
         for sp in POKEDEX.all():
             e = entries.get(sp.id)
-            if e and e.caught > 0:
-                mark = "✅"
-            elif e and e.seen > 0:
-                mark = "👁️"
-            else:
-                mark = "⬜"
-            qty = f" ×{e.caught}" if e and e.caught > 1 else ""
-            lines.append(f"{mark} `#{sp.id:03d}` {sp.name}{qty}")
-
-        pages = []
-        groups = chunk(lines, 20)
-        for group in groups:
-            emb = discord.Embed(
-                title=f"📕 Pokédex de {ctx.author.display_name}",
-                description=header + "\n".join(group),
-                color=settings.color_default,
-            )
-            pages.append(emb)
+            mark = "✅" if (e and e.caught > 0) else ("👁️" if (e and e.seen > 0) else "⬜")
+            lines.append(f"{mark} `#{sp.id:03d}` {sp.name}")
+        pages = [
+            discord.Embed(title=f"📕 Pokédex de {ctx.author.display_name}",
+                          description=header + "\n".join(group), color=settings.color_default)
+            for group in chunk(lines, 20)
+        ]
         await Paginator(pages, ctx.author.id).start(ctx)
 
 

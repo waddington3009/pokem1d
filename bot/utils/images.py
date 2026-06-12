@@ -63,17 +63,22 @@ def _compose(sprites, labels, cols: int) -> io.BytesIO:
     fname = _font(14)
     fsub = _font(12)
 
-    for i, (sprite, (name, sub, shiny)) in enumerate(zip(sprites, labels)):
+    for i, (sprite, (name, sub, shiny, dim)) in enumerate(zip(sprites, labels)):
         cx = (i % cols) * _CELL_W
         cy = (i // cols) * _CELL_H
         if sprite is not None:
             s = sprite.resize((_SPRITE, _SPRITE))
+            if dim:
+                # silhueta: pixels opacos viram cinza escuro (pokémon "não visto")
+                sil = Image.new("RGBA", s.size, (78, 80, 90, 255))
+                sil.putalpha(s.split()[3])
+                s = sil
             canvas.paste(s, (cx + (_CELL_W - _SPRITE) // 2, cy + 6), s)
         # nome (centralizado)
         nm = _truncate(draw, name, fname, _CELL_W - 8)
         nw = draw.textlength(nm, font=fname)
-        draw.text((cx + (_CELL_W - nw) / 2, cy + 104), nm,
-                  font=fname, fill=(_SHINY if shiny else _NAME))
+        name_fill = _SUB if dim else (_SHINY if shiny else _NAME)
+        draw.text((cx + (_CELL_W - nw) / 2, cy + 104), nm, font=fname, fill=name_fill)
         # subtítulo (#idx • Nv)
         sw = draw.textlength(sub, font=fsub)
         draw.text((cx + (_CELL_W - sw) / 2, cy + 124), sub, font=fsub, fill=_SUB)
@@ -90,7 +95,7 @@ async def render_grid(entries: list[tuple[int, bool, str, str]], cols: int = 3) 
         sprites = await asyncio.gather(
             *(_fetch_sprite(session, e[0], e[1]) for e in entries)
         )
-    labels = [(e[2], e[3], e[1]) for e in entries]
+    labels = [(e[2], e[3], e[1], (e[4] if len(e) > 4 else False)) for e in entries]
     loop = asyncio.get_running_loop()
     # compõe a imagem fora do event loop (Pillow é CPU-bound)
     return await loop.run_in_executor(None, _compose, list(sprites), labels, cols)
