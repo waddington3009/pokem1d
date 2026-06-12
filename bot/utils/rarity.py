@@ -10,9 +10,9 @@ RARITY_WEIGHTS: dict[str, float] = {
     "common": 100.0,
     "uncommon": 45.0,
     "rare": 12.0,
-    "superrare": 3.0,
-    "legendary": 0.4,
-    "mythical": 0.05,
+    "superrare": 13.0,   # ~1 em 611 no explore
+    "legendary": 2.2,    # ~1 em 826
+    "mythical": 1.3,     # ~1 em 3.762 (raro, mas alcançável)
 }
 
 RARITY_LABEL: dict[str, str] = {
