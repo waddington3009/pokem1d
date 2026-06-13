@@ -8,14 +8,14 @@ from bot.data.pokemon_data import POKEDEX, Species
 # Peso relativo de cada tier (quanto maior, mais comum no spawn).
 # Peso POR ESPÉCIE. A chance final de cada tier depende de quantas espécies ele
 # tem (super=8, lendário=35, mítico=13), por isso os tiers raros levam peso alto.
-# Calibrado para: Super Raro 1% • Lendário 0.3% • Mítico 0.03% no explore.
+# Calibrado para: Super Raro 2% • Lendário 0.5% • Mítico 0.05% no explore.
 RARITY_WEIGHTS: dict[str, float] = {
     "common": 100.0,
     "uncommon": 45.0,
     "rare": 12.0,
-    "superrare": 48.077,   # 1.0%    (~1 em 100)
-    "legendary": 3.297,    # 0.3%    (~1 em 333)
-    "mythical": 0.888,     # 0.03%   (~1 em 3.333)
+    "superrare": 97.358,   # 2.0%    (~1 em 50)
+    "legendary": 5.563,    # 0.5%    (~1 em 200)
+    "mythical": 1.498,     # 0.05%   (~1 em 2.000)
 }
 
 RARITY_LABEL: dict[str, str] = {
