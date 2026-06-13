@@ -56,9 +56,10 @@ class Pokedex(commands.Cog, name="Coleção"):
         want_shiny = "shiny" in flags
         want_fav = "fav" in flags or "favorite" in flags
         want_legend = "legendary" in flags or "lendario" in flags
+        want_iv = "--iv" in flags or "iv" in flags
         name_filter = next((f.split(":", 1)[1] for f in flags if f.startswith("name:")), None)
         order = Pokemon.idx
-        if "--iv" in flags or "iv" in flags:
+        if want_iv:
             order = Pokemon.idx  # ordenaremos depois em memória por IV
         if "--level" in flags or "level" in flags:
             order = Pokemon.level.desc()
@@ -84,7 +85,7 @@ class Pokedex(commands.Cog, name="Coleção"):
                 continue
             rows.append((m, sp))
 
-        if "--iv" in flags or "iv" in flags:
+        if want_iv:
             rows.sort(key=lambda r: r[0].iv_percent, reverse=True)
 
         if not rows:
@@ -94,13 +95,22 @@ class Pokedex(commands.Cog, name="Coleção"):
         # ---- grade visual estática (sprites cheios, SEM corte) ----
         try:
             from bot.utils.image_paginator import ImageGridPaginator
-            entries = [
-                (sp.id, m.shiny, sp.name, f"#{m.idx}  Nv{m.level}")
-                for m, sp in rows
-            ]
+            if want_iv:
+                entries = [
+                    (sp.id, m.shiny, sp.name, f"#{m.idx}  IV {m.iv_percent:.0f}%")
+                    for m, sp in rows
+                ]
+            else:
+                entries = [
+                    (sp.id, m.shiny, sp.name, f"#{m.idx}  Nv{m.level}")
+                    for m, sp in rows
+                ]
+            title = f"📦 Pokémon de {ctx.author.display_name} ({len(rows)})"
+            if want_iv:
+                title = f"💎 Por IV — {ctx.author.display_name} ({len(rows)})"
             await ImageGridPaginator(
                 ctx, entries,
-                title=f"📦 Pokémon de {ctx.author.display_name} ({len(rows)})",
+                title=title,
                 footer="✨ dourado = shiny • use p!info <#> para detalhes",
                 per_page=9, cols=3,
             ).start()
