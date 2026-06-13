@@ -299,6 +299,60 @@ class Pokedex(commands.Cog, name="Coleção"):
         await ctx.send(embed=embeds.ok_embed("Pokémon solto(s)", msg))
 
     # ------------------------------------------------------------------
+    @commands.command(name="releaseall", aliases=["soltartudo", "abandonartudo"])
+    @commands.guild_only()
+    async def releaseall(self, ctx: commands.Context) -> None:
+        """Solta TODOS os seus pokémon de uma vez. Favoritos ficam protegidos."""
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, ctx.author.id)
+            mons = await helpers.list_pokemon(session, user.id)
+            to_release = [m for m in mons if not m.favorite]
+            fav_count = sum(1 for m in mons if m.favorite)
+            total = sum(50 + m.level * 3 for m in to_release)
+            count = len(to_release)
+
+        if count == 0:
+            await ctx.send(embed=embeds.err_embed(
+                "Você não tem pokémon não-favoritos para soltar."))
+            return
+
+        view = Confirm(ctx.author.id, confirm_label=f"Soltar {count} 👋", cancel_label="Cancelar")
+        emb = embeds.info_text(
+            f"Você vai soltar **{count}** pokémon por **{total:,} 🪙** no total.\n"
+            f"🔒 **{fav_count}** favorito(s) ficam **protegidos**.\n\n"
+            f"⚠️ **Isso é PERMANENTE!** (a Pokédex não é afetada)",
+            title="⚠️ Soltar TODOS os pokémon",
+        )
+        view.message = await ctx.send(embed=emb, view=view)
+        await view.wait()
+        if not view.value:
+            await ctx.send(embed=embeds.info_text("Operação cancelada. 🛑"))
+            return
+
+        released, gained = 0, 0
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, ctx.author.id)
+            mons = await helpers.list_pokemon(session, user.id)
+            party = list(user.party or [])
+            for m in mons:
+                if m.favorite:
+                    continue
+                if user.selected_id == m.id:
+                    user.selected_id = None
+                if m.idx in party:
+                    party = [p for p in party if p != m.idx]
+                gained += 50 + m.level * 3
+                await session.delete(m)
+                released += 1
+            user.party = party
+            user.coins += gained
+
+        await ctx.send(embed=embeds.ok_embed(
+            "Pokémon soltos 👋",
+            f"Você soltou **{released}** pokémon e recebeu **{gained:,} PokéCoins**.\n"
+            f"🔒 **{fav_count}** favorito(s) foram mantidos."))
+
+    # ------------------------------------------------------------------
     @commands.command(name="pokedex", aliases=["dex"])
     @commands.guild_only()
     async def pokedex(self, ctx: commands.Context) -> None:
