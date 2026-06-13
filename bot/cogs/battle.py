@@ -92,12 +92,23 @@ def balanced_wild_level(player_level: int, player_bst: int, wild_bst: int,
 
 
 def pick_balanced_wild_species(lead_species: Species, band: int = 70) -> Species:
-    """Sorteia um selvagem de força (BST) parecida com o líder do jogador (sem lendários)."""
+    """Sorteia um selvagem de força (BST) parecida com o líder do jogador.
+
+    Preferimos não-lendários; mas se o líder for de topo (Arceus, etc.), quase
+    não há não-lendários nessa faixa — então liberamos lendários/míticos para
+    dar variedade e um desafio à altura (senão cai sempre no mesmo Slaking).
+    """
     target = lead_species.base_total
-    cands = [s for s in POKEDEX.all()
-             if not s.legendary and abs(s.base_total - target) <= band]
-    if not cands:
-        cands = [s for s in POKEDEX.all() if not s.legendary]
+    pool = [s for s in POKEDEX.all() if s.id != lead_species.id]
+
+    # 1ª tentativa: não-lendários numa banda de BST parecida
+    cands = [s for s in pool if not s.legendary and abs(s.base_total - target) <= band]
+    # 2ª: poucos candidatos → permite lendários/míticos na mesma banda
+    if len(cands) < 6:
+        cands = [s for s in pool if abs(s.base_total - target) <= band]
+    # 3ª: ainda poucos → os 24 mais próximos em BST (garante variedade real)
+    if len(cands) < 6:
+        cands = sorted(pool, key=lambda s: abs(s.base_total - target))[:24]
     return random.choice(cands)
 
 
