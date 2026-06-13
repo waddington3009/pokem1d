@@ -362,20 +362,19 @@ class Explore(commands.Cog, name="Exploração"):
         species = pick_spawn_species()
         shiny = roll_shiny(settings.shiny_chance)
 
-        # nível escala com o TIME de batalha (o mais forte da party), não só o
-        # selecionado — evita a brecha de selecionar um fraco p/ encontros fáceis
+        # nível escala com o LÍDER do time (party[0] = o pokémon selecionado),
+        # que é o mesmo que batalha primeiro — tudo consistente com o p!select
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
-            levels = []
-            for idx in list(user.party or []):
-                poke = await helpers.get_pokemon_by_idx(session, user.id, idx)
-                if poke:
-                    levels.append(poke.level)
-            if not levels:
+            party = list(user.party or [])
+            lead_level = None
+            if party:
+                lead = await helpers.get_pokemon_by_idx(session, user.id, party[0])
+                if lead:
+                    lead_level = lead.level
+            if lead_level is None:
                 selected = await helpers.get_selected(session, user)
-                if selected:
-                    levels.append(selected.level)
-            lead_level = max(levels) if levels else 5
+                lead_level = selected.level if selected else 5
             await helpers.update_pokedex(session, user.id, species.id, seen=1, caught=0)
         level = roll_encounter_level(species, lead_level)
 

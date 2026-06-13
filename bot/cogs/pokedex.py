@@ -152,7 +152,8 @@ class Pokedex(commands.Cog, name="Coleção"):
     @commands.command(name="select", aliases=["selecionar"])
     @commands.guild_only()
     async def select_cmd(self, ctx: commands.Context, numero: int) -> None:
-        """Define seu pokémon ativo (usado em batalhas e boosters)."""
+        """Define seu LÍDER de time (batalha primeiro e define o nível dos encontros)."""
+        from bot.data.gyms import party_slots
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
             poke = await helpers.get_pokemon_by_idx(session, user.id, numero)
@@ -160,11 +161,16 @@ class Pokedex(commands.Cog, name="Coleção"):
                 await ctx.send(embed=embeds.err_embed(f"Você não tem o pokémon #{numero}."))
                 return
             user.selected_id = poke.id
-            sp = POKEDEX.get(poke.species_id)
+            # vira o LÍDER do time (slot 1): batalha primeiro e define o nível dos encontros
+            party = [numero] + [x for x in (user.party or []) if x != numero]
+            user.party = party[:party_slots(user.badges)]
+            nome = embeds.species_name(sp := POKEDEX.get(poke.species_id), poke.shiny, poke.nickname)
+            level, idx = poke.level, poke.idx
         await ctx.send(embed=embeds.ok_embed(
-            "Pokémon selecionado",
-            f"📌 Agora seu pokémon ativo é **{embeds.species_name(sp, poke.shiny, poke.nickname)}** "
-            f"(#{poke.idx}, Nv {poke.level})."
+            "Líder do time definido 📌",
+            f"**{nome}** (#{idx}, Nv {level}) agora é o **líder** do seu time:\n"
+            f"• Ele **batalha primeiro** (você pode trocar no meio com 🔄)\n"
+            f"• Define o **nível dos encontros** no `{ctx.prefix}explore`"
         ))
 
     # ------------------------------------------------------------------
