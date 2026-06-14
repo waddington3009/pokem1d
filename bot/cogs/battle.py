@@ -239,15 +239,23 @@ class BattleView(discord.ui.View):
             types = " ".join(TYPE_EMOJI.get(t, "") for t in mon.species.types)
             status = f" • {mon.status}" if mon.status else ""
             shiny = "✨" if mon.shiny else ""
-            emb.add_field(
-                name=f"{shiny}{mon.name} {types}",
-                value=(f"`{self._names[side]}`\n"
-                       f"Nv {mon.level}{status}\n"
-                       f"{hp_bar(mon.hp_fraction())}\n"
-                       f"**{mon.hp}/{mon.max_hp}** HP\n"
-                       f"Time: {team_dots(team, active)}"),
-                inline=True,
-            )
+            if scene:
+                # a imagem já mostra HP, nível e o time — aqui só o que falta nela
+                emb.add_field(
+                    name=f"{shiny}{mon.name} {types}",
+                    value=f"`{self._names[side]}`{status}",
+                    inline=True,
+                )
+            else:
+                emb.add_field(
+                    name=f"{shiny}{mon.name} {types}",
+                    value=(f"`{self._names[side]}`\n"
+                           f"Nv {mon.level}{status}\n"
+                           f"{hp_bar(mon.hp_fraction())}\n"
+                           f"**{mon.hp}/{mon.max_hp}** HP\n"
+                           f"Time: {team_dots(team, active)}"),
+                    inline=True,
+                )
         if scene:
             # cena composta (fundo + sprites + HP) enviada como anexo
             emb.set_image(url="attachment://scene.png")

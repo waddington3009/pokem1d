@@ -25,13 +25,13 @@ _BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemo
 # ---- dimensões da cena ----
 W, H = 480, 260
 
-# cores
-_SKY_TOP = (150, 206, 235)
-_SKY_BOT = (205, 232, 245)
-_GRASS = (124, 200, 120)
-_PLAT = (96, 178, 96)
-_PLAT_EDGE = (78, 156, 78)
-_BOX_BG = (248, 248, 240)
+# cores (paleta suave — brilho reduzido para não cansar a vista)
+_SKY_TOP = (120, 165, 195)
+_SKY_BOT = (158, 188, 205)
+_GRASS = (96, 158, 96)
+_PLAT = (80, 140, 80)
+_PLAT_EDGE = (64, 116, 64)
+_BOX_BG = (228, 228, 222)
 _BOX_EDGE = (60, 60, 70)
 _TXT = (40, 42, 52)
 _HP_BACK = (90, 92, 100)
