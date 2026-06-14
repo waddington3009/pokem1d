@@ -28,6 +28,7 @@ from bot.game.battle_engine import (
     end_of_turn,
 )
 from bot.utils import embeds, helpers
+from bot.utils.battle_scene import render_battle_scene
 from bot.utils.confirm import Confirm
 from bot.utils.progression import bump_quest, check_achievements
 from bot.utils.rarity import RARITY_WEIGHTS
@@ -230,7 +231,7 @@ class BattleView(discord.ui.View):
                 self.add_item(VoltarButton(self))
 
     # ---- renderização ----
-    def render(self) -> discord.Embed:
+    def render(self, scene: bool = False) -> discord.Embed:
         emb = discord.Embed(title="⚔️ Batalha Pokémon", color=settings.color_default)
         for side in ("p1", "p2"):
             mon = self.p1 if side == "p1" else self.p2
@@ -247,9 +248,13 @@ class BattleView(discord.ui.View):
                        f"Time: {team_dots(team, active)}"),
                 inline=True,
             )
-        # sprites animados: oponente grande (imagem) e o seu como miniatura
-        emb.set_image(url=settings.sprite_animated(self.p2.species.id, self.p2.shiny))
-        emb.set_thumbnail(url=settings.sprite_animated(self.p1.species.id, self.p1.shiny))
+        if scene:
+            # cena composta (fundo + sprites + HP) enviada como anexo
+            emb.set_image(url="attachment://scene.png")
+        else:
+            # fallback: sprites animados (oponente grande, o seu como miniatura)
+            emb.set_image(url=settings.sprite_animated(self.p2.species.id, self.p2.shiny))
+            emb.set_thumbnail(url=settings.sprite_animated(self.p1.species.id, self.p1.shiny))
         emb.add_field(name=f"📜 Turno {self.turn}", value="\n".join(self.log[-6:]) or "—", inline=False)
         if not self.finished:
             actor = self._actor_id()
@@ -263,11 +268,19 @@ class BattleView(discord.ui.View):
                 emb.set_footer(text=f"Vez de {nome} — escolha um golpe ou troque.")
         return emb
 
+    async def _render(self) -> tuple[discord.Embed, discord.File | None]:
+        """Gera a cena (imagem) + o embed. Se a cena falhar, usa o visual antigo."""
+        buf = await render_battle_scene(self.p1, self.p2, self.p1_team, self.p2_team)
+        file = discord.File(buf, filename="scene.png") if buf is not None else None
+        return self.render(scene=file is not None), file
+
     async def start(self) -> None:
         content = None
         if self.p2_id is not None:
             content = f"<@{self.p1_id}> ⚔️ <@{self.p2_id}> — que vença o melhor!"
-        self.message = await self.battle_channel.send(content=content, embed=self.render(), view=self)
+        emb, file = await self._render()
+        self.message = await self.battle_channel.send(
+            content=content, embed=emb, view=self, **({"file": file} if file else {}))
 
     async def _cleanup_channel(self) -> None:
         """Apaga a arena privada 10s após o fim da batalha."""
@@ -281,7 +294,9 @@ class BattleView(discord.ui.View):
             pass
 
     async def _safe_edit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.edit_message(embed=self.render(), view=self)
+        emb, file = await self._render()
+        await interaction.response.edit_message(
+            embed=emb, view=self, attachments=([file] if file else []))
 
     # ---- escolha de ação (golpe) ----
     async def on_action(self, interaction: discord.Interaction, action: tuple) -> None:
@@ -454,12 +469,13 @@ class BattleView(discord.ui.View):
         loser_rep = loser_team[self.p2_active if winner_side == "p1" else self.p1_active]
 
         self.clear_items()
-        emb = self.render()
+        emb, file = await self._render()
         emb.title = "🏆 Fim da batalha!"
         emb.color = settings.color_success
         result = await self.cog.award(winner_id, winner_team, loser_rep, self.is_pve, loser_id)
         emb.add_field(name="Resultado", value=result, inline=False)
-        await interaction.response.edit_message(embed=emb, view=self)
+        await interaction.response.edit_message(
+            embed=emb, view=self, attachments=([file] if file else []))
         if self.on_finish is not None:
             try:
                 await self.on_finish(winner_rep, loser_rep)
