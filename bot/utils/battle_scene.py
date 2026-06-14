@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import unicodedata
 
 import aiohttp
 from PIL import Image, ImageDraw, ImageFont
@@ -39,6 +40,12 @@ _HP_BACK = (90, 92, 100)
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default(size=size)
+
+
+def _ascii(text: str) -> str:
+    """Remove acentos (a fonte embutida do Pillow não tem glifos acentuados)."""
+    norm = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return norm or text
 
 
 def _sprite_url(species_id: int, shiny: bool, back: bool) -> str:
@@ -124,8 +131,9 @@ def _draw_hp_box(draw: ImageDraw.ImageDraw, x: int, y: int, w: int,
     draw.rounded_rectangle([x, y, x + w, y + h], radius=8, fill=_BOX_BG, outline=_BOX_EDGE, width=2)
     fname = _font(15)
     fsub = _font(11)
-    nm = ("✨ " if shiny else "") + name
-    draw.text((x + 10, y + 6), nm, font=fname, fill=_TXT)
+    # shiny é indicado pelo nome em dourado (emoji não existe na fonte da imagem)
+    draw.text((x + 10, y + 6), _ascii(name), font=fname,
+              fill=(196, 156, 30) if shiny else _TXT)
     lv = f"Nv{level}"
     lvw = draw.textlength(lv, font=fsub)
     draw.text((x + w - lvw - 10, y + 9), lv, font=fsub, fill=_TXT)
@@ -141,7 +149,35 @@ def _draw_hp_box(draw: ImageDraw.ImageDraw, x: int, y: int, w: int,
     _draw_team_balls(draw, x + w - total * 16 - 4, y + 42, alive, total)
 
 
-def _compose(p1_sprite, p2_sprite, p1, p2, p1_alive, p2_alive, p1_total, p2_total) -> io.BytesIO:
+def _draw_banner(canvas: Image.Image, draw: ImageDraw.ImageDraw, text: str,
+                 color: tuple[int, int, int]) -> None:
+    """Escreve um texto grande (ex.: VITÓRIA!) centralizado, sobre uma faixa escura."""
+    text = _ascii(text)
+    # escolhe o maior tamanho de fonte que cabe na largura
+    size = 52
+    while size > 18:
+        f = _font(size)
+        bb = draw.textbbox((0, 0), text, font=f, stroke_width=2)
+        if bb[2] - bb[0] <= W - 36:
+            break
+        size -= 2
+    f = _font(size)
+    bb = draw.textbbox((0, 0), text, font=f, stroke_width=2)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    cy = H // 2
+    # faixa escura translúcida atrás do texto
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    bar_h = th + 34
+    od.rectangle([0, cy - bar_h // 2, W, cy + bar_h // 2], fill=(0, 0, 0, 150))
+    canvas.alpha_composite(overlay)
+    # texto com contorno escuro
+    draw.text((W / 2 - tw / 2 - bb[0], cy - th / 2 - bb[1]), text, font=f,
+              fill=color, stroke_width=2, stroke_fill=(20, 20, 24))
+
+
+def _compose(p1_sprite, p2_sprite, p1, p2, p1_alive, p2_alive, p1_total, p2_total,
+             banner=None, banner_color=None) -> io.BytesIO:
     canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     _draw_background(draw, canvas)
@@ -166,15 +202,21 @@ def _compose(p1_sprite, p2_sprite, p1, p2, p1_alive, p2_alive, p1_total, p2_tota
     _draw_hp_box(draw, 264, 176, 200, p1.name, p1.level, p1.hp_fraction(),
                  p1_alive, p1_total, p1.shiny, show_numbers=True, cur=p1.hp, mx=p1.max_hp)
 
+    # banner de resultado (VITÓRIA! / DERROTA), se houver
+    if banner:
+        _draw_banner(canvas, draw, banner, banner_color or (255, 255, 255))
+
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="PNG")
     buf.seek(0)
     return buf
 
 
-async def render_battle_scene(p1, p2, p1_team, p2_team) -> io.BytesIO | None:
+async def render_battle_scene(p1, p2, p1_team, p2_team,
+                              banner=None, banner_color=None) -> io.BytesIO | None:
     """Gera o PNG da cena. p1 = ativo do jogador (costas), p2 = ativo do oponente (frente).
 
+    Se `banner` vier preenchido (ex.: "VITÓRIA!"), escreve por cima da cena.
     Retorna BytesIO pronto para anexo, ou None se algo falhar.
     """
     try:
@@ -188,7 +230,7 @@ async def render_battle_scene(p1, p2, p1_team, p2_team) -> io.BytesIO | None:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, _compose, p1_sprite, p2_sprite, p1, p2,
-            p1_alive, p2_alive, len(p1_team), len(p2_team),
+            p1_alive, p2_alive, len(p1_team), len(p2_team), banner, banner_color,
         )
     except Exception:  # noqa: BLE001
         return None

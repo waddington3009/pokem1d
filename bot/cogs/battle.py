@@ -276,9 +276,12 @@ class BattleView(discord.ui.View):
                 emb.set_footer(text=f"Vez de {nome} — escolha um golpe ou troque.")
         return emb
 
-    async def _render(self) -> tuple[discord.Embed, discord.File | None]:
+    async def _render(self, banner=None, banner_color=None
+                      ) -> tuple[discord.Embed, discord.File | None]:
         """Gera a cena (imagem) + o embed. Se a cena falhar, usa o visual antigo."""
-        buf = await render_battle_scene(self.p1, self.p2, self.p1_team, self.p2_team)
+        buf = await render_battle_scene(
+            self.p1, self.p2, self.p1_team, self.p2_team,
+            banner=banner, banner_color=banner_color)
         file = discord.File(buf, filename="scene.png") if buf is not None else None
         return self.render(scene=file is not None), file
 
@@ -477,7 +480,15 @@ class BattleView(discord.ui.View):
         loser_rep = loser_team[self.p2_active if winner_side == "p1" else self.p1_active]
 
         self.clear_items()
-        emb, file = await self._render()
+        # banner na cena: VITÓRIA/DERROTA no PvE; nome do vencedor no PvP
+        if self.is_pve:
+            won_p1 = winner_side == "p1"
+            banner = "VITÓRIA!" if won_p1 else "DERROTA"
+            bcolor = (96, 220, 112) if won_p1 else (236, 92, 82)
+        else:
+            banner = f"{self._names[winner_side]} VENCEU!"
+            bcolor = (255, 212, 92)
+        emb, file = await self._render(banner=banner, banner_color=bcolor)
         emb.title = "🏆 Fim da batalha!"
         emb.color = settings.color_success
         result = await self.cog.award(winner_id, winner_team, loser_rep, self.is_pve, loser_id)
