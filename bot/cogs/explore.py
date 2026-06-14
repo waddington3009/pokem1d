@@ -12,6 +12,7 @@ from bot.data.pokemon_data import POKEDEX, Species
 from bot.data.types import TYPE_EMOJI, type_color
 from bot.database.db import session_scope
 from bot.utils import embeds, helpers
+from bot.utils.explore_scene import render_explore_scene
 from bot.utils.progression import bump_quest, check_achievements
 from bot.utils.rarity import (
     RARITY_EMOJI,
@@ -89,7 +90,7 @@ async def do_capture(
 
 
 def encounter_embed(species: Species, shiny: bool, level: int, location: str,
-                    state: str = "open") -> discord.Embed:
+                    state: str = "open", scene: bool = False) -> discord.Embed:
     color = settings.color_shiny if shiny else type_color(species.types)
     name = ("✨ " if shiny else "") + species.name
     types = " ".join(f"{TYPE_EMOJI.get(t,'')} {t.title()}" for t in species.types)
@@ -102,13 +103,17 @@ def encounter_embed(species: Species, shiny: bool, level: int, location: str,
             f"{types} • {RARITY_EMOJI.get(species.rarity,'')} {rarity_label(species.rarity)}\n\n"
             f"O que você deseja fazer?"
         )
-    emb.set_image(url=settings.sprite(species.id, shiny=shiny, official=True))
+    if scene:
+        # cena composta (pokémon na floresta) enviada como anexo
+        emb.set_image(url="attachment://encounter.png")
+    else:
+        emb.set_image(url=settings.sprite(species.id, shiny=shiny, official=True))
     return emb
 
 
 class EncounterView(discord.ui.View):
     def __init__(self, cog: "Explore", ctx, species: Species, shiny: bool, level: int,
-                 location: str):
+                 location: str, scene: bool = False):
         super().__init__(timeout=60)
         self.cog = cog
         self.ctx = ctx
@@ -117,6 +122,7 @@ class EncounterView(discord.ui.View):
         self.shiny = shiny
         self.level = level
         self.location = location
+        self.scene = scene
         self.message: discord.Message | None = None
         self.resolved = False
         self.phase = "main"          # "main" | "ball"
@@ -187,8 +193,10 @@ class EncounterView(discord.ui.View):
         elif action == "voltar":
             self.phase = "main"
             self._build()
+            # sem 'attachments': mantém a cena já anexada na mensagem original
             await interaction.response.edit_message(
-                embed=encounter_embed(self.species, self.shiny, self.level, self.location), view=self)
+                embed=encounter_embed(self.species, self.shiny, self.level, self.location,
+                                      scene=self.scene), view=self)
         elif action == "batalhar":
             await self._do_battle(interaction)
         elif action == "ignorar":
@@ -340,10 +348,13 @@ class Explore(commands.Cog, name="Exploração"):
                 "Apenas o vento. Tente novamente em instantes.",
                 "Você encontrou pegadas, mas o rastro acabou.",
             ]
-            await ctx.send(embed=embeds.info_text(
-                f"📍 *{location}*\n{random.choice(flavores)}",
-                title="🔍 Exploração",
-            ))
+            emb = embeds.info_text(
+                f"📍 *{location}*\n{random.choice(flavores)}", title="🔍 Exploração")
+            buf = await render_explore_scene("nothing")
+            file = discord.File(buf, filename="explore.png") if buf else None
+            if file:
+                emb.set_image(url="attachment://explore.png")
+            await ctx.send(embed=emb, **({"file": file} if file else {}))
             return
 
         # 2) achou moedas
@@ -352,10 +363,14 @@ class Explore(commands.Cog, name="Exploração"):
             async with session_scope() as session:
                 user = await helpers.fetch_user(session, ctx.author.id)
                 user.coins += coins
-            await ctx.send(embed=embeds.ok_embed(
+            emb = embeds.ok_embed(
                 "💰 Você achou um tesouro!",
-                f"📍 *{location}*\nEncontrou **{coins} PokéCoins** no chão!",
-            ))
+                f"📍 *{location}*\nEncontrou **{coins} PokéCoins** no chão!")
+            buf = await render_explore_scene("coins")
+            file = discord.File(buf, filename="explore.png") if buf else None
+            if file:
+                emb.set_image(url="attachment://explore.png")
+            await ctx.send(embed=emb, **({"file": file} if file else {}))
             return
 
         # 3) encontro com pokémon
@@ -378,9 +393,13 @@ class Explore(commands.Cog, name="Exploração"):
             await helpers.update_pokedex(session, user.id, species.id, seen=1, caught=0)
         level = roll_encounter_level(species, lead_level)
 
-        view = EncounterView(self, ctx, species, shiny, level, location)
+        # cena: o pokémon em pé na floresta (fundo). Cai pro artwork se falhar.
+        buf = await render_explore_scene("pokemon", species, shiny)
+        file = discord.File(buf, filename="encounter.png") if buf else None
+        view = EncounterView(self, ctx, species, shiny, level, location, scene=file is not None)
         view.message = await ctx.send(
-            embed=encounter_embed(species, shiny, level, location), view=view
+            embed=encounter_embed(species, shiny, level, location, scene=file is not None),
+            view=view, **({"file": file} if file else {}),
         )
 
 
