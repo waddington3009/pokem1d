@@ -13,7 +13,7 @@ from bot.database.db import get_or_create_guild, init_db, session_scope
 log = logging.getLogger("pokebot")
 
 # Comandos utilitários liberados em qualquer canal (mesmo com trava de canal ativa)
-ALWAYS_ALLOWED = {"help", "ping", "botinfo"}
+ALWAYS_ALLOWED = {"help", "tutorial", "ping", "botinfo"}
 
 
 class WrongChannel(commands.CheckFailure):
@@ -39,6 +39,7 @@ EXTENSIONS = [
     "bot.cogs.general",
     "bot.cogs.gyms",
     "bot.cogs.owner",
+    "bot.cogs.help_tutorial",
 ]
 
 
@@ -65,7 +66,7 @@ class PokeBot(commands.Bot):
             intents=intents,
             case_insensitive=True,
             owner_ids=set(settings.owner_ids) or None,
-            help_command=commands.DefaultHelpCommand(no_category="Geral"),
+            help_command=None,  # help próprio (cog help_tutorial)
             activity=discord.Game(name=f"{settings.default_prefix}help • Gotta catch 'em all!"),
         )
         # cache de prefixos por servidor (evita hit no DB a cada mensagem)
