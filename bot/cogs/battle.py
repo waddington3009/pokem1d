@@ -793,26 +793,45 @@ class Battle(commands.Cog, name="Batalha"):
             user = await helpers.fetch_user(session, ctx.author.id)
             party = list(user.party or [])
             pmax = party_slots(user.badges)
-            linhas = []
+            members, linhas = [], []
             for pos, idx in enumerate(party, 1):
                 poke = await helpers.get_pokemon_by_idx(session, user.id, idx)
                 if poke:
                     sp = POKEDEX.get(poke.species_id)
                     shiny = "✨" if poke.shiny else ""
-                    linhas.append(f"`{pos}.` {shiny}**{sp.name}** #{idx} • Nv {poke.level} • IV {poke.iv_percent:.0f}%")
+                    lead = "👑 " if pos == 1 else ""
+                    linhas.append(f"`{pos}.` {lead}{shiny}**{sp.name}** #{idx} • Nv {poke.level} • IV {poke.iv_percent:.0f}%")
+                    members.append({
+                        "species_id": sp.id, "shiny": poke.shiny, "name": sp.name,
+                        "level": poke.level, "iv": poke.iv_percent, "idx": idx, "lead": pos == 1,
+                    })
                 else:
                     linhas.append(f"`{pos}.` *(pokémon #{idx} não existe mais)*")
 
         if not linhas:
             await ctx.send(embed=embeds.info_text(
                 f"Seu time está vazio — as batalhas usam seu pokémon **selecionado**.\n"
-                f"Monte um time com `{ctx.prefix}party add <número>` (até {pmax}).",
+                f"Monte um time com `{ctx.prefix}party add <número>` (até {pmax}).\n"
+                f"👑 O **1º** do time é o **líder** (batalha primeiro e define o nível dos encontros).",
                 title="🎒 Seu time",
             ))
             return
-        emb = embeds.info_text("\n".join(linhas), title=f"🎒 Seu time ({len(linhas)}/{pmax})")
-        emb.set_footer(text=f"{ctx.prefix}party add/remove <#> • {ctx.prefix}party clear")
-        await ctx.send(embed=emb)
+
+        emb = discord.Embed(
+            title=f"🎒 Time de {ctx.author.display_name} ({len(members)}/{pmax})",
+            color=settings.color_default,
+        )
+        # imagem visual do time (cards); cai pro texto se falhar
+        from bot.utils.team_scene import render_team
+        buf = await render_team(members)
+        file = discord.File(buf, filename="team.png") if buf else None
+        if file:
+            emb.set_image(url="attachment://team.png")
+            emb.description = "👑 O **líder** (1º) batalha primeiro e define o nível dos encontros."
+        else:
+            emb.description = "\n".join(linhas)
+        emb.set_footer(text=f"{ctx.prefix}party add/remove <#> • {ctx.prefix}select <#> troca o líder • {ctx.prefix}party clear")
+        await ctx.send(embed=emb, **({"file": file} if file else {}))
 
     @party.command(name="add", aliases=["adicionar"])
     async def party_add(self, ctx: commands.Context, *numeros: int) -> None:
