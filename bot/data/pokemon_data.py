@@ -58,6 +58,11 @@ class Species:
                 return ev
         return None
 
+    def eligible_level_evos(self, level: int) -> list[EvolutionStep]:
+        """Todas as evoluções por nível já liberadas (para evoluções paralelas)."""
+        return [ev for ev in self.evolutions
+                if ev.method == "level" and ev.level is not None and level >= ev.level]
+
     def can_evolve_by_stone(self, stone: str) -> EvolutionStep | None:
         for ev in self.evolutions:
             if ev.method == "stone" and ev.stone == stone:
