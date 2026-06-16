@@ -65,6 +65,9 @@ class Catching(commands.Cog, name="Captura"):
         embed = embeds.catch_embed(species, poke, ctx.author.display_name, coins, shiny, new_dex)
         await ctx.send(embed=embed)
 
+        # anuncia no canal de warning se for raro/shiny
+        await self.bot.announce_rare(ctx.guild, ctx.author, species, shiny, poke.level)
+
         # edita a mensagem do spawn para indicar que foi capturado
         if spawn.message_id:
             try:

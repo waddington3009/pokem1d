@@ -130,6 +130,37 @@ class PokeBot(commands.Bot):
     def set_game_channels_cache(self, guild_id: int, channels: list[int]) -> None:
         self.game_channels_cache[guild_id] = list(channels)
 
+    # ---- Anúncio de capturas raras (canal de warning) ----
+    async def announce_rare(self, guild, member, species, shiny: bool, level: int | None = None) -> None:
+        """Anuncia, no canal configurado, quando alguém pega um Super-Raro+ ou shiny."""
+        if guild is None or species is None:
+            return
+        if species.rarity not in ("superrare", "legendary", "mythical") and not shiny:
+            return
+        try:
+            async with session_scope() as session:
+                g = await get_or_create_guild(session, guild.id)
+                ch_id = g.warning_channel_id
+            if not ch_id:
+                return
+            channel = guild.get_channel(ch_id)
+            if channel is None:
+                return
+            from bot.utils.rarity import RARITY_COLOR, RARITY_EMOJI, rarity_label
+            emoji = RARITY_EMOJI.get(species.rarity, "")
+            tier = rarity_label(species.rarity)
+            title = "✨ SHINY encontrado!" if shiny else f"{emoji} {tier} capturado!"
+            color = settings.color_shiny if shiny else RARITY_COLOR.get(species.rarity, settings.color_default)
+            desc = (f"🎉 {member.mention} acabou de conseguir "
+                    f"{'um ✨ **SHINY** ' if shiny else 'um '}**{species.name}**"
+                    f"{f' (Nv {level})' if level else ''}!\n"
+                    f"{emoji} Raridade: **{tier}**")
+            emb = discord.Embed(title=title, description=desc, color=color)
+            emb.set_thumbnail(url=settings.sprite_animated(species.id, shiny=shiny))
+            await channel.send(embed=emb)
+        except Exception:
+            log.exception("Falha ao anunciar captura rara")
+
     async def _channel_lock_check(self, ctx: commands.Context) -> bool:
         # DMs e comandos de admin/utilitários passam em qualquer lugar
         if ctx.guild is None:

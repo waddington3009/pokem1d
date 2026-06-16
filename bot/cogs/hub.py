@@ -900,6 +900,7 @@ class HubView(discord.ui.View):
             extra += "\n✨ **SHINY!**"
         self.result = ("caught", f"🎉 Você capturou **{sp.name}**!\n{extra}")
         await self.show(interaction)
+        await self.ctx.bot.announce_rare(self.ctx.guild, self.ctx.author, sp, shiny, level)
 
     async def _explore_battle(self, interaction):
         enc = self.encounter
@@ -1081,10 +1082,22 @@ class Hub(commands.Cog, name="Painel"):
     @commands.hybrid_command(name="menu", aliases=["jogar", "hub", "painel"])
     @commands.guild_only()
     async def menu(self, ctx: commands.Context) -> None:
-        """Abre o painel central do jogo (use /menu para o modo privado)."""
-        ephemeral = ctx.interaction is not None
+        """Abre o painel central do jogo (use /menu para o modo privado, só você vê)."""
         view = HubView(ctx)
-        await view.send_first(ctx, ephemeral=ephemeral)
+        emb, file = await view.render()
+        view._build()
+        if ctx.interaction is not None:
+            # slash: SEMPRE ephemeral (só o jogador vê) — usa a API da interação direto
+            kwargs = {"embed": emb, "view": view, "ephemeral": True}
+            if file:
+                kwargs["file"] = file
+            await ctx.interaction.response.send_message(**kwargs)
+            view.message = await ctx.interaction.original_response()
+        else:
+            kwargs = {"embed": emb, "view": view}
+            if file:
+                kwargs["file"] = file
+            view.message = await ctx.send(**kwargs)
 
     @commands.command(name="sync")
     @commands.is_owner()

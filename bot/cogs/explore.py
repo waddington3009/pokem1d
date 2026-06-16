@@ -249,6 +249,7 @@ class EncounterView(discord.ui.View):
             extra += "\n✨ **SHINY!**"
         emb = self._finish_embed(f"🎉 Você capturou {self.species.name}!", settings.color_success, extra)
         await interaction.response.edit_message(embed=emb, view=self)
+        await self.cog.bot.announce_rare(self.ctx.guild, self.ctx.author, self.species, shiny, self.level)
         if newly:
             await self.ctx.send(embed=embeds.ok_embed(
                 "Conquista desbloqueada!",

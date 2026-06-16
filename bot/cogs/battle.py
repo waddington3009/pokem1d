@@ -429,12 +429,8 @@ class BattleView(discord.ui.View):
 
     async def _resolve(self, interaction: discord.Interaction) -> None:
         self._apply_round()
-        # na arena privada, posta a narração do turno no chat (play-by-play)
-        if self.temp_channel is not None and self.log:
-            try:
-                await self.battle_channel.send("📣 " + " ".join(self.log))
-            except discord.HTTPException:
-                pass
+        # (a narração de cada turno já aparece no embed, que se atualiza no lugar —
+        #  não mandamos mais mensagens novas a cada turno para não poluir o chat)
         await self._post_resolve(interaction)
 
     async def _post_resolve(self, interaction: discord.Interaction) -> None:
