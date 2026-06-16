@@ -18,7 +18,7 @@ from discord.ext import commands
 from sqlalchemy import func, select
 
 from config import settings
-from bot.data.gyms import CHALLENGES, CHALLENGES_BY_KEY, party_slots
+from bot.data.gyms import CHALLENGES, CHALLENGES_BY_KEY, challenge_index, party_slots
 from bot.data.items import ITEMS, SHOP_ORDER, find_item, get_item
 from bot.data.pokemon_data import POKEDEX
 from bot.database.db import session_scope
@@ -199,8 +199,10 @@ class HubView(discord.ui.View):
             self.add_item(ActionBtn(self, "quests", "Resgatar missões", "📋", discord.ButtonStyle.success, 0))
             self.add_item(HomeBtn(self, 1))
         elif s == "liga":
-            self.add_item(NavBtn(self, "liga_badges", "Insígnias", "🎖️", discord.ButtonStyle.primary, 0))
-            self.add_item(HomeBtn(self, 0))
+            if self._opts:
+                self.add_item(ChoiceSelect(self, "gym", "Desafiar um líder...", self._opts, row=0))
+            self.add_item(NavBtn(self, "liga_badges", "Insígnias", "🎖️", discord.ButtonStyle.primary, 1))
+            self.add_item(HomeBtn(self, 1))
         elif s == "explorar":
             phase = (self.encounter or {}).get("phase") if self.encounter else None
             if self.encounter and phase == "main":
@@ -524,14 +526,19 @@ class HubView(discord.ui.View):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, self.author_id)
             badges, slots = set(user.badges or []), party_slots(user.badges)
-        linhas = []
+        linhas, self._opts = [], []
         for i, c in enumerate(CHALLENGES):
-            st = "✅" if c.key in badges else ("▶️" if (i == 0 or CHALLENGES[i - 1].key in badges) else "🔒")
+            unlocked = i == 0 or CHALLENGES[i - 1].key in badges
+            st = "✅" if c.key in badges else ("▶️" if unlocked else "🔒")
             tag = {"champion": "👑 ", "elite": "⭐ ", "legend": "🌟 ", "myth": "💠 "}.get(c.kind, "")
             linhas.append(f"{st} `{i + 1:>2}` {c.emoji} {tag}**{c.name}** — {c.leader}")
+            if unlocked and len(self._opts) < 25:
+                est = "🔁 revanche" if c.key in badges else "▶️ disponível"
+                self._opts.append(discord.SelectOption(
+                    label=f"{i + 1}. {c.name}"[:100], description=f"{c.leader} · {est}"[:100], value=c.key))
         emb = discord.Embed(title=f"🏆 Liga ({len(badges)}/{len(CHALLENGES)})",
                             description="\n".join(linhas), color=settings.color_default)
-        emb.set_footer(text=f"Time: {slots} slots • desafie com {self.prefix}gym <nº/nome>")
+        emb.set_footer(text=f"Time: {slots} slots • escolha no menu para DESAFIAR (privado)")
         return emb, None
 
     async def _s_liga_badges(self):
@@ -785,6 +792,100 @@ class HubView(discord.ui.View):
         bview.message = self.message
         await bview.start_hosted(interaction)
 
+    async def do_gym(self, interaction, key: str):
+        """Desafia um líder da Liga DENTRO do /menu (privado). Concede insígnia ao vencer."""
+        from bot.cogs.battle import BattleView, build_wild_mon
+        from bot.cogs.gyms import REMATCH_CD
+        ch = CHALLENGES_BY_KEY.get(key)
+        battle_cog = self.ctx.bot.get_cog("Batalha")
+        if ch is None or battle_cog is None:
+            self.flash = "Desafio indisponível."
+            self.goto("liga")
+            return await self.show(interaction)
+        idx = challenge_index(ch.key)
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            badges = list(user.badges or [])
+            cooldowns = dict(user.gym_cooldowns or {})
+        # trancado?
+        if idx > 0 and CHALLENGES[idx - 1].key not in badges:
+            self.flash = f"🔒 Vença antes: **{CHALLENGES[idx - 1].name}**."
+            self.goto("liga")
+            return await self.show(interaction)
+        # já venceu e em cooldown?
+        if ch.key in badges:
+            remaining = REMATCH_CD - (time.time() - cooldowns.get(ch.key, 0))
+            if remaining > 0:
+                h, m = divmod(int(remaining) // 60, 60)
+                self.flash = f"⏳ Revanche de **{ch.name}** em **{h}h {m}min**."
+                self.goto("liga")
+                return await self.show(interaction)
+        p1_team, err = await battle_cog.load_team(self.ctx, self.ctx.author)
+        if not p1_team:
+            self.flash = f"⚠️ {err}"
+            self.goto("liga")
+            return await self.show(interaction)
+        leader_team = [build_wild_mon(POKEDEX.by_name(n), lv, name=n, perfect_iv=ch.perfect)
+                       for n, lv in ch.team]
+        already = ch.key in badges
+        pid = self.author_id
+
+        async def on_finish(winner, loser):
+            await self._grant_gym(ch, winner.owner_id == pid, already)
+
+        self.handed_off = True
+        bview = BattleView(battle_cog, self.ctx, p1_team, leader_team, pid, None,
+                           on_finish=on_finish, opponent_name=ch.leader,
+                           end_view=PostBattleView(self, "liga"))
+        bview.message = self.message
+        await bview.start_hosted(interaction)
+
+    async def _grant_gym(self, ch, won: bool, already: bool):
+        """Concede a recompensa do ginásio e guarda o texto no flash (mostrado na Liga)."""
+        from bot.cogs.gyms import REMATCH_CD
+        if not won:
+            self.flash = f"Você foi derrotado por **{ch.leader}**... treine e volte! 💪"
+            return
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            badges = list(user.badges or [])
+            if ch.key not in badges:
+                before = party_slots(badges)
+                badges.append(ch.key)
+                user.badges = badges
+                user.badge_count = len(badges)
+                user.coins += ch.reward_coins
+                lines = [f"🎖️ Você ganhou a **{ch.badge}** {ch.emoji}!",
+                         f"💰 +{ch.reward_coins:,} PokéCoins"]
+                it = get_item(ch.reward_item) if ch.reward_item else None
+                if it is not None:
+                    await helpers.add_item(session, user.id, it.key, ch.reward_item_qty)
+                    lines.append(f"{it.emoji} +{ch.reward_item_qty}× {it.name}")
+                after = party_slots(badges)
+                if after > before:
+                    lines.append(f"📈 Seu time aumentou para **{after} slots**!")
+                if ch.kind == "champion":
+                    lines.append("👑 **VOCÊ É O CAMPEÃO DA LIGA!** 🏆")
+                elif ch.kind == "myth":
+                    lines.append("💠 **VOCÊ DOMINOU A CÂMARA DOS MÍTICOS!** 🌌")
+                elif ch.kind == "legend":
+                    lines.append("🌟 Um covil lendário tombou diante de você!")
+                cds = dict(user.gym_cooldowns or {})
+                cds[ch.key] = time.time()
+                user.gym_cooldowns = cds
+                self.flash = "\n".join(lines)
+            else:
+                cds = dict(user.gym_cooldowns or {})
+                now, last = time.time(), cds.get(ch.key, 0)
+                if now - last >= REMATCH_CD:
+                    reward = max(1, ch.reward_coins // 4)
+                    user.coins += reward
+                    cds[ch.key] = now
+                    user.gym_cooldowns = cds
+                    self.flash = f"🔁 Revanche vencida! +{reward:,} PokéCoins."
+                else:
+                    self.flash = "Você já venceu este líder hoje (revanche em cooldown)."
+
     async def open_price_modal(self, interaction, idx: int):
         await interaction.response.send_modal(PriceModal(self, idx))
 
@@ -1020,6 +1121,8 @@ class ChoiceSelect(discord.ui.Select):
             await self._hub.open_market_listing(interaction, int(v))
         elif self._kind == "sell":
             await self._hub.open_price_modal(interaction, int(v))
+        elif self._kind == "gym":
+            await self._hub.do_gym(interaction, v)
 
 
 class PostBattleView(discord.ui.View):
@@ -1029,8 +1132,11 @@ class PostBattleView(discord.ui.View):
         super().__init__(timeout=180)
         self.hub = hub
         self.message = hub.message
-        again = (("duel_again", "Duelar de novo", "⚔️") if mode == "duel"
-                 else ("explore_again", "Explorar de novo", "🌿"))
+        again = {
+            "duel": ("duel_again", "Duelar de novo", "⚔️"),
+            "explore": ("explore_again", "Explorar de novo", "🌿"),
+            "liga": ("liga", "Ver Liga", "🏆"),
+        }.get(mode, ("menu", "Menu", "🏠"))
         self.add_item(PostBtn(hub, again[0], again[1], again[2], discord.ButtonStyle.success))
         self.add_item(PostBtn(hub, "menu", "Menu", "🏠", discord.ButtonStyle.secondary))
 
@@ -1060,10 +1166,14 @@ class PostBtn(discord.ui.Button):
             self.view.stop()  # encerra esta View (evita o timeout atropelar o que vem)
         fresh = HubView(self._hub.ctx)      # hub novo e "vivo" para navegar
         fresh.message = self._hub.message
+        fresh.flash = self._hub.flash       # carrega aviso (ex.: recompensa do ginásio)
         if self._action == "duel_again":
             await fresh.do_duel(interaction)
         elif self._action == "explore_again":
             await fresh.do_explore(interaction)
+        elif self._action == "liga":
+            fresh.goto("liga")
+            await fresh.show(interaction)
         else:  # menu
             fresh.goto("home")
             await fresh.show(interaction)
