@@ -13,7 +13,7 @@ from bot.database.db import get_or_create_guild, init_db, session_scope
 log = logging.getLogger("pokebot")
 
 # Comandos utilitários liberados em qualquer canal (mesmo com trava de canal ativa)
-ALWAYS_ALLOWED = {"help", "tutorial", "ping", "botinfo"}
+ALWAYS_ALLOWED = {"help", "tutorial", "ping", "botinfo", "menu", "sync"}
 
 
 class WrongChannel(commands.CheckFailure):
@@ -40,6 +40,7 @@ EXTENSIONS = [
     "bot.cogs.gyms",
     "bot.cogs.owner",
     "bot.cogs.help_tutorial",
+    "bot.cogs.hub",
 ]
 
 
