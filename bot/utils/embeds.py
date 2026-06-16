@@ -42,7 +42,7 @@ def spawn_embed(species: Species, shiny: bool, prefix: str = "p!") -> discord.Em
     color = settings.color_shiny if shiny else type_color(species.types)
     desc = (
         "Um **pokémon selvagem** apareceu! 🌿\n"
-        f"Adivinhe quem é e digite `{prefix}catch <nome>` para capturá-lo!"
+        "Adivinhe quem é e use **`/capturar <nome>`** para capturá-lo!"
     )
     embed = discord.Embed(
         title="Quem é esse Pokémon?",

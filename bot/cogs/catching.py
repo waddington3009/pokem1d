@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from config import settings
@@ -16,24 +17,27 @@ class Catching(commands.Cog, name="Captura"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @commands.command(name="catch", aliases=["c", "capturar"])
+    @commands.hybrid_command(name="capturar", aliases=["catch", "c"])
+    @app_commands.describe(nome="O nome do pokémon selvagem que apareceu no canal")
     @commands.cooldown(1, 1.5, commands.BucketType.user)
     @commands.guild_only()
-    async def catch(self, ctx: commands.Context, *, palpite: str) -> None:
-        """Captura o pokémon selvagem ativo no canal. Uso: catch <nome>."""
+    async def catch(self, ctx: commands.Context, *, nome: str) -> None:
+        """Captura o pokémon selvagem ativo no canal. Uso: /capturar <nome>."""
+        eph = ctx.interaction is not None
         spawn = self.bot.active_spawns.get(ctx.channel.id)
         if spawn is None:
             await ctx.send(embed=embeds.err_embed(
                 "Não há nenhum pokémon selvagem por aqui agora. Espere o próximo aparecer!"
-            ))
+            ), ephemeral=eph)
             return
 
-        if normalize_name(palpite) != normalize_name(spawn.species.name):
+        if normalize_name(nome) != normalize_name(spawn.species.name):
             # também aceita nomes alternativos
             from bot.data.pokemon_data import POKEDEX
-            guessed = POKEDEX.by_name(palpite)
+            guessed = POKEDEX.by_name(nome)
             if guessed is None or guessed.id != spawn.species.id:
-                await ctx.send(f"❌ Esse não é o nome certo, {ctx.author.mention}! Tente de novo.")
+                await ctx.send(f"❌ Esse não é o nome certo, {ctx.author.mention}! Tente de novo.",
+                               ephemeral=eph)
                 return
 
         # captura confirmada — remove o spawn imediatamente (evita corrida)
@@ -63,7 +67,7 @@ class Catching(commands.Cog, name="Captura"):
             newly = check_achievements(user)
 
         embed = embeds.catch_embed(species, poke, ctx.author.display_name, coins, shiny, new_dex)
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, ephemeral=eph)
 
         # anuncia no canal de warning se for raro/shiny
         await self.bot.announce_rare(ctx.guild, ctx.author, species, shiny, poke.level)
@@ -84,7 +88,7 @@ class Catching(commands.Cog, name="Captura"):
         # anuncia conquistas desbloqueadas
         if newly:
             linhas = "\n".join(f"🏆 **{a.name}** — {a.description} (+{a.reward_coins} 🪙)" for a in newly)
-            await ctx.send(embed=embeds.ok_embed("Conquista desbloqueada!", linhas))
+            await ctx.send(embed=embeds.ok_embed("Conquista desbloqueada!", linhas), ephemeral=eph)
             # credita as recompensas das conquistas
             async with session_scope() as session:
                 user = await helpers.fetch_user(session, ctx.author.id)
