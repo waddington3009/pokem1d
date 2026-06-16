@@ -162,10 +162,10 @@ class PokeBot(commands.Bot):
             log.exception("Falha ao anunciar captura rara")
 
     async def _channel_lock_check(self, ctx: commands.Context) -> bool:
-        # DMs e comandos de admin/utilitários passam em qualquer lugar
+        # DMs passam; comandos de admin/dono e utilitários passam em qualquer canal.
+        # OBS: o dono NÃO é mais isento dos comandos de JOGO — assim a trava de canal
+        # vale pra todos (incluindo você), e dá pra testar de verdade. Admin segue livre.
         if ctx.guild is None:
-            return True
-        if await self.is_owner(ctx.author):
             return True
         if ctx.cog and ctx.cog.qualified_name in ("Administração", "Dono"):
             return True
