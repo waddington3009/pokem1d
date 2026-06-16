@@ -128,12 +128,13 @@ class HubView(discord.ui.View):
         s = self.screen
         if s == "home":
             self.add_item(NavBtn(self, "explorar", "Explorar", "🌿", discord.ButtonStyle.success, 0, action="explore"))
+            self.add_item(NavBtn(self, "home", "Duelar", "⚔️", discord.ButtonStyle.success, 0, action="duel"))
             self.add_item(NavBtn(self, "time", "Time", "🎒", discord.ButtonStyle.primary, 0))
             self.add_item(NavBtn(self, "colecao", "Coleção", "📦", discord.ButtonStyle.primary, 0))
             self.add_item(NavBtn(self, "loja", "Loja", "🛒", discord.ButtonStyle.primary, 1))
             self.add_item(NavBtn(self, "market", "Market", "🏪", discord.ButtonStyle.primary, 1))
             self.add_item(NavBtn(self, "liga", "Liga", "🏆", discord.ButtonStyle.primary, 1))
-            self.add_item(NavBtn(self, "missoes", "Missões", "📋", discord.ButtonStyle.primary, 2))
+            self.add_item(NavBtn(self, "missoes", "Missões", "📋", discord.ButtonStyle.primary, 1))
             self.add_item(NavBtn(self, "perfil", "Perfil", "👤", discord.ButtonStyle.primary, 2))
             self.add_item(CloseBtn(self, row=2))
         elif s == "time":
@@ -179,7 +180,12 @@ class HubView(discord.ui.View):
                 self.add_item(ChoiceSelect(self, "market", "Comprar do mercado...", self._opts, row=0))
             self.add_item(PageBtn(self, -1, "◀️", 1))
             self.add_item(PageBtn(self, +1, "▶️", 1))
+            self.add_item(NavBtn(self, "market_sell", "Anunciar", "📢", discord.ButtonStyle.success, 1))
             self.add_item(HomeBtn(self, 1))
+        elif s == "market_sell":
+            if self._opts:
+                self.add_item(ChoiceSelect(self, "sell", "Anunciar qual pokémon?", self._opts, row=0))
+            self.add_item(NavBtn(self, "market", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
         elif s == "market_buy":
             self.add_item(ActionBtn(self, "market_yes", "Comprar", "💰", discord.ButtonStyle.success, 0))
             self.add_item(NavBtn(self, "market", "Voltar", "◀️", discord.ButtonStyle.secondary, 0))
@@ -468,6 +474,31 @@ class HubView(discord.ui.View):
         emb.set_thumbnail(url=settings.sprite_animated(sid, shiny=shiny))
         return emb, None
 
+    async def _s_market_sell(self):
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            listed = set(await session.scalars(select(MarketListing.pokemon_id).where(
+                MarketListing.seller_id == user.id, MarketListing.active == True)))  # noqa: E712
+            mons = await helpers.list_pokemon(session, user.id)
+            self._opts = []
+            for m in mons:
+                if m.favorite or m.id in listed:
+                    continue
+                sp = POKEDEX.get(m.species_id)
+                if sp:
+                    self._opts.append(discord.SelectOption(
+                        label=f"#{m.idx} {sp.name}"[:100],
+                        description=f"Nv {m.level} · IV {m.iv_percent:.0f}%", value=str(m.idx)))
+                if len(self._opts) >= 25:
+                    break
+        emb = discord.Embed(title="📢 Anunciar no mercado",
+                            description="Escolha o pokémon. Depois você digita o **preço**.\n"
+                                        "🔒 Favoritos e já anunciados não aparecem.",
+                            color=settings.color_info)
+        if not self._opts:
+            emb.description = "Nenhum pokémon disponível para anunciar."
+        return emb, None
+
     async def _s_missoes(self):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, self.author_id)
@@ -727,6 +758,36 @@ class HubView(discord.ui.View):
         self.goto("time")
         await self.show(interaction)
 
+    async def do_duel(self, interaction):
+        battle_cog = self.ctx.bot.get_cog("Batalha")
+        if battle_cog is None:
+            self.flash = "Batalha indisponível."
+            return await self.show(interaction)
+        p1_team, err = await battle_cog.load_team(self.ctx, self.ctx.author)
+        if not p1_team:
+            self.flash = f"⚠️ {err}"
+            return await self.show(interaction)
+        self.flash = "⚔️ Duelo iniciado **no canal**! Boa sorte, treinador."
+        self.goto("home")
+        await self.show(interaction)
+        from bot.cogs.battle import pick_balanced_wild_species, build_wild_mon
+        lead = p1_team[0]
+        species = pick_balanced_wild_species(lead.species)
+        level = max(1, lead.level - random.randint(0, 2))
+        p2_team = [build_wild_mon(species, level)]
+        await battle_cog.launch_battle(self.ctx, p1_team, p2_team, self.author_id, None)
+
+    async def open_price_modal(self, interaction, idx: int):
+        await interaction.response.send_modal(PriceModal(self, idx))
+
+    async def refresh_from_modal(self, interaction):
+        """Atualiza a mensagem do hub após um Modal (que não está ligado a ela)."""
+        await interaction.response.defer()
+        emb, file = await self.render()
+        self._build()
+        if self.message is not None:
+            await self.message.edit(embed=emb, view=self, attachments=([file] if file else []))
+
     async def open_detail(self, interaction, idx: int):
         self.detail_idx = idx
         self.goto("detalhe")
@@ -880,6 +941,8 @@ class NavBtn(discord.ui.Button):
     async def callback(self, interaction):
         if self._action == "explore":
             return await self._hub.do_explore(interaction)
+        if self._action == "duel":
+            return await self._hub.do_duel(interaction)
         if self._mode:
             self._hub.select_mode = self._mode
         self._hub.goto(self._t)
@@ -953,6 +1016,48 @@ class ChoiceSelect(discord.ui.Select):
             await self._hub.open_shop_item(interaction, v)
         elif self._kind == "market":
             await self._hub.open_market_listing(interaction, int(v))
+        elif self._kind == "sell":
+            await self._hub.open_price_modal(interaction, int(v))
+
+
+class PriceModal(discord.ui.Modal, title="📢 Anunciar no mercado"):
+    preco = discord.ui.TextInput(label="Preço em PokéCoins", placeholder="Ex.: 1500",
+                                 min_length=1, max_length=9)
+
+    def __init__(self, hub: "HubView", idx: int):
+        super().__init__()
+        self._hub, self._idx = hub, idx
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = str(self.preco.value).strip().replace(".", "").replace(",", "")
+        if not raw.isdigit() or not (1 <= int(raw) <= 100_000_000):
+            await interaction.response.send_message(
+                "Preço inválido (use só números, 1–100.000.000).", ephemeral=True)
+            return
+        price = int(raw)
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self._hub.author_id)
+            poke = await helpers.get_pokemon_by_idx(session, user.id, self._idx)
+            if poke is None:
+                self._hub.flash = "Pokémon não é seu."
+            elif poke.favorite:
+                self._hub.flash = "Favorito protegido. Desfavorite antes de anunciar."
+            else:
+                existing = await session.scalar(select(MarketListing).where(
+                    MarketListing.pokemon_id == poke.id, MarketListing.active == True))  # noqa: E712
+                if existing:
+                    self._hub.flash = "Esse pokémon já está anunciado."
+                else:
+                    if user.selected_id == poke.id:
+                        user.selected_id = None
+                    user.party = [p for p in (user.party or []) if p != poke.idx]
+                    lst = MarketListing(seller_id=user.id, pokemon_id=poke.id, price=price)
+                    session.add(lst)
+                    await session.flush()
+                    self._hub.flash = (f"🏪 **{POKEDEX.get(poke.species_id).name}** anunciado por "
+                                       f"**{price:,}** 🪙 (ID {lst.id}).")
+        self._hub.goto("market")
+        await self._hub.refresh_from_modal(interaction)
 
 
 class CloseBtn(discord.ui.Button):
