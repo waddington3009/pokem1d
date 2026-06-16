@@ -19,17 +19,18 @@ class General(commands.Cog, name="Geral"):
         self.bot = bot
 
     # ------------------------------------------------------------------
-    @commands.command(name="start", aliases=["comecar", "começar", "iniciar"])
+    @commands.hybrid_command(name="start", aliases=["comecar", "começar", "iniciar"])
     @commands.guild_only()
     async def start(self, ctx: commands.Context) -> None:
         """Começa sua jornada: ganhe um pokémon inicial e itens."""
+        eph = ctx.interaction is not None
         async with session_scope() as session:
             user = await helpers.fetch_user(session, ctx.author.id)
             count = await helpers.pokemon_count(session, user.id)
             if count > 0:
                 await ctx.send(embed=embeds.err_embed(
-                    "Você já começou sua jornada! Use `pokemon` para ver sua coleção."
-                ))
+                    "Você já começou sua jornada! Use `/menu` para jogar."
+                ), ephemeral=eph)
                 return
             starter = POKEDEX.random_starter()
             poke = await helpers.create_pokemon(session, user, starter, level=5)
@@ -43,15 +44,15 @@ class General(commands.Cog, name="Geral"):
             "🎉 Bem-vindo ao mundo Pokémon!",
             f"Você recebeu seu inicial: **{starter.name}** (Nv 5)!\n\n"
             f"🎁 Bônus inicial: **500 PokéCoins**, 10× Poké Ball e 5× Great Ball.\n\n"
-            f"**Próximos passos:**\n"
-            f"• Converse no servidor para fazer pokémon aparecerem\n"
-            f"• Capture com `{ctx.prefix}catch <nome>`\n"
-            f"• Veja sua coleção com `{ctx.prefix}pokemon`\n"
-            f"• Resgate moedas com `{ctx.prefix}daily`\n"
-            f"• Veja tudo em `{ctx.prefix}help`",
+            f"**Próximos passos:** é tudo pelo **/menu** (privado, só você vê)!\n"
+            f"• 🌿 **Explorar** para achar e capturar pokémon\n"
+            f"• ⚔️ **Duelar** para batalhar e ganhar XP/moedas\n"
+            f"• 📦 **Coleção** e 🎒 **Time** para gerenciar\n"
+            f"• 🎁 **Missões** para a recompensa diária\n"
+            f"• Aprenda tudo em **/tutorial**",
         )
         emb.set_thumbnail(url=settings.sprite_animated(starter.id))
-        await ctx.send(embed=emb)
+        await ctx.send(embed=emb, ephemeral=eph)
 
     # ------------------------------------------------------------------
     @commands.command(name="ping")

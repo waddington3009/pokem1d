@@ -13,7 +13,12 @@ from bot.database.db import get_or_create_guild, init_db, session_scope
 log = logging.getLogger("pokebot")
 
 # Comandos utilitários liberados em qualquer canal (mesmo com trava de canal ativa)
-ALWAYS_ALLOWED = {"help", "tutorial", "ping", "botinfo", "menu", "sync"}
+ALWAYS_ALLOWED = {"help", "tutorial", "ping", "botinfo", "menu", "sync", "start"}
+
+# Comandos que jogadores comuns AINDA podem usar por prefixo (o resto é só /menu).
+# Mantemos o que é PÚBLICO por natureza: captura de spawn, PvP, ginásio e troca.
+# (o duelo PvE saiu daqui de propósito — agora é privado pelo /menu → Duelar)
+PREFIX_KEEP_FOR_USERS = {"catch", "gym", "battle", "trade"}
 
 
 class WrongChannel(commands.CheckFailure):
@@ -22,6 +27,10 @@ class WrongChannel(commands.CheckFailure):
     def __init__(self, channel_ids: list[int]) -> None:
         self.channel_ids = channel_ids
         super().__init__("Comando usado no canal errado.")
+
+
+class PrefixDisabled(commands.CheckFailure):
+    """Jogador comum tentou usar comando por prefixo (agora só via /menu)."""
 
 
 EXTENSIONS = [
@@ -76,6 +85,8 @@ class PokeBot(commands.Bot):
         self.game_channels_cache: dict[int, list[int]] = {}
         # garante o sync dos comandos de barra (/) só uma vez por processo
         self._slash_synced = False
+        # bloqueia comandos por PREFIXO para jogadores comuns (eles usam /menu, privado)
+        self.add_check(self._prefix_block_check)
         # verificação global: trava comandos fora dos canais de jogo
         self.add_check(self._channel_lock_check)
 
@@ -161,6 +172,24 @@ class PokeBot(commands.Bot):
         except Exception:
             log.exception("Falha ao anunciar captura rara")
 
+    async def _prefix_block_check(self, ctx: commands.Context) -> bool:
+        # Slash (/menu, /start...) sempre passa — é o jeito privado de jogar.
+        if ctx.interaction is not None:
+            return True
+        if ctx.guild is None:
+            return True
+        # admins/dono mantêm o prefixo para gerenciar
+        if await self.is_owner(ctx.author):
+            return True
+        if ctx.author.guild_permissions.manage_guild:
+            return True
+        if ctx.cog and ctx.cog.qualified_name in ("Administração", "Dono"):
+            return True
+        # poucos comandos seguem por prefixo p/ todos (ex.: captura de spawn)
+        if ctx.command and ctx.command.qualified_name in PREFIX_KEEP_FOR_USERS:
+            return True
+        raise PrefixDisabled()
+
     async def _channel_lock_check(self, ctx: commands.Context) -> bool:
         # DMs passam; comandos de admin/dono e utilitários passam em qualquer canal.
         # OBS: o dono NÃO é mais isento dos comandos de JOGO — assim a trava de canal
@@ -184,6 +213,21 @@ class PokeBot(commands.Bot):
         if ctx.cog and ctx.cog.has_error_handler():
             return
         if isinstance(error, commands.CommandNotFound):
+            return
+        if isinstance(error, PrefixDisabled):
+            # tira o spam: apaga o comando do jogador e dá um toque que some sozinho
+            try:
+                await ctx.message.delete()
+            except discord.HTTPException:
+                pass
+            try:
+                await ctx.send(
+                    f"🔒 {ctx.author.mention}, agora é só pelo **/menu** (privado, só você vê)! "
+                    f"Digite **/menu** para jogar. 🎮",
+                    delete_after=8,
+                )
+            except discord.HTTPException:
+                pass
             return
         if isinstance(error, WrongChannel):
             canais = ", ".join(f"<#{c}>" for c in error.channel_ids)

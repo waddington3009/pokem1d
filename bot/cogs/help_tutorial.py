@@ -52,11 +52,10 @@ def build_overview(bot: commands.Bot, prefix: str, is_admin: bool) -> discord.Em
     emb = discord.Embed(
         title="📖 Central de Ajuda — PokeM1D",
         description=(
-            f"Bem-vindo, treinador! Aqui estão todos os comandos, organizados por tema.\n"
-            f"Use o **menu abaixo** para abrir uma categoria. 👇\n\n"
-            f"🎓 É novo? Comece pelo **`{prefix}tutorial`** — um guia visual passo a passo.\n"
-            f"🚀 Já quer jogar? **`{prefix}start`** te dá um inicial e itens.\n"
-            f"🔎 Detalhe de um comando: **`{prefix}help <comando>`**."
+            f"Bem-vindo, treinador! O jogo é todo pelo **`/menu`** (privado, só você vê). 🎮\n\n"
+            f"🎓 É novo? Comece por **`/tutorial`** — um guia visual passo a passo.\n"
+            f"🚀 Pra começar: **`/start`** te dá um inicial e itens.\n\n"
+            f"As categorias abaixo são uma **referência** dos comandos (admins usam por prefixo). 👇"
         ),
         color=settings.color_default,
     )
@@ -188,16 +187,17 @@ async def _img_grid(pairs):
     return await render_grid(entries, cols=3) if entries else None
 
 
-# cada passo: título, cor, descrição (usa {p} = prefixo) e gerador de imagem
+# cada passo: título, cor, descrição e gerador de imagem.
+# Tudo gira em torno do /menu (privado). Sem comandos de prefixo.
 STEPS = [
     {
         "title": "🎓 Bem-vindo ao PokeM1D!",
         "color": 0xE91E63,
         "desc": (
-            "Sua jornada de treinador começa aqui! Em poucos passos você vai aprender a "
-            "**explorar, capturar, batalhar e evoluir** seus pokémon.\n\n"
+            "Sua jornada começa aqui! Você vai **explorar, capturar, batalhar e evoluir** pokémon.\n\n"
+            "✨ **Tudo se joga pelo `/menu`** — um painel **privado** (só você vê), sem encher o chat.\n\n"
             "▶️ Use os botões abaixo para avançar.\n"
-            "💡 Dica: digite **`{p}start`** para ganhar seu pokémon inicial + itens grátis."
+            "💡 Comece digitando **`/start`** para ganhar seu inicial + itens grátis!"
         ),
         "img": lambda: _img_explore("Pikachu"),
     },
@@ -205,12 +205,12 @@ STEPS = [
         "title": "🌿 Passo 1 — Explorar",
         "color": 0x57F287,
         "desc": (
-            "Use **`{p}explore`** (ou `{p}ex`) para sair em busca de pokémon selvagens.\n\n"
+            "Abra o **`/menu`** e clique em **🌿 Explorar** para procurar pokémon selvagens.\n\n"
             "A cada exploração você pode encontrar:\n"
             "🐾 **Um pokémon** — escolha **Capturar**, **Batalhar** ou **Ignorar**\n"
             "💰 **Um tesouro** — PokéCoins grátis\n"
             "🍃 **Nada** — tente de novo em instantes\n\n"
-            "Quanto mais raro o pokémon, mais forte e cobiçado ele é! ✨"
+            "Quanto mais raro o pokémon, mais forte e cobiçado! ✨"
         ),
         "img": lambda: _img_explore("Eevee"),
     },
@@ -218,13 +218,13 @@ STEPS = [
         "title": "🎯 Passo 2 — Capturar",
         "color": 0x3BA55D,
         "desc": (
-            "Ao encontrar um selvagem, clique em **Capturar** e escolha a **pokébola**:\n\n"
+            "Ao encontrar um selvagem, clique em **🎯 Capturar** e escolha a **pokébola**:\n\n"
             "⚪ **Poké Ball** — chance base\n"
-            "🔵 **Great Ball** — +15% de chance\n"
-            "🟡 **Ultra Ball** — +30% de chance\n"
+            "🔵 **Great Ball** — +15%\n"
+            "🟡 **Ultra Ball** — +30%\n"
             "🟣 **Master Ball** — captura garantida (rara!)\n\n"
-            "Pokémon raros são mais difíceis de pegar — guarde as bolas boas pra eles! 💎\n"
-            "Compre mais bolas na **`{p}shop`**."
+            "Pokémon raros são mais difíceis — guarde as bolas boas pra eles! 💎\n"
+            "Compre mais na **🛒 Loja** do `/menu`."
         ),
         "img": lambda: _img_explore("Snorlax"),
     },
@@ -232,11 +232,11 @@ STEPS = [
         "title": "⚔️ Passo 3 — Batalhar",
         "color": 0xED4245,
         "desc": (
-            "Teste seu time! Use **`{p}duel`** para lutar contra um selvagem (PvE), "
-            "ou **`{p}battle @amigo`** para um duelo **PvP** numa arena privada.\n\n"
-            "⚡ As batalhas têm **tipos** (água vence fogo, etc.), **golpes** e **troca de pokémon**.\n"
-            "🏅 Vencer dá **XP e PokéCoins**.\n\n"
-            "A cena mostra tudo: vida, nível e o seu time. No fim aparece **VITÓRIA** ou **DERROTA**!"
+            "No **`/menu`**, clique em **⚔️ Duelar** para batalhar contra um selvagem — **só você vê**!\n\n"
+            "⚡ As batalhas têm **tipos** (água vence fogo…), **golpes** e **troca de pokémon**.\n"
+            "🏅 Vencer dá **XP e PokéCoins**.\n"
+            "🔁 No fim aparece **VITÓRIA/DERROTA** e o botão **Duelar de novo** — emende quantas quiser!\n\n"
+            "*(Para PvP contra um amigo, o staff te explica.)*"
         ),
         "img": _img_battle,
     },
@@ -244,11 +244,11 @@ STEPS = [
         "title": "📦 Passo 4 — Coleção & Time",
         "color": 0x5865F2,
         "desc": (
-            "Veja seus pokémon com **`{p}pokemon`** (filtros: `shiny`, `fav`, `--iv`).\n\n"
-            "⭐ **`{p}select <#>`** — define quem lidera e batalha primeiro\n"
-            "👥 **`{p}party add <#> <#> <#>`** — monta seu time de batalha\n"
-            "❤️ **`{p}favorite <#>`** — protege um pokémon (não solta sem querer)\n"
-            "📕 **`{p}pokedex`** — seu progresso de registros\n\n"
+            "Tudo no **`/menu`**:\n\n"
+            "📦 **Coleção** — veja seus pokémon e clique em um para **⭐ Tornar líder, "
+            "❤️ Favoritar, 🧬 Evoluir ou 🔁 Soltar**.\n"
+            "🎒 **Time** — **➕ Adicionar / ➖ Remover** e definir o **líder** (ele batalha "
+            "primeiro e define o nível dos encontros).\n\n"
             "Seu time cresce conquistando insígnias na Liga! 🏆"
         ),
         "img": lambda: _img_grid([
@@ -260,25 +260,23 @@ STEPS = [
         "title": "🏆 Passo 5 — A Liga Pokémon",
         "color": 0xE67E22,
         "desc": (
-            "O grande desafio! Use **`{p}gyms`** para ver os 8 **Ginásios**, a **Elite dos 4**, "
-            "o **Campeão** e os **covis lendários**.\n\n"
+            "O grande desafio! No **`/menu` → 🏆 Liga** você vê os 8 **Ginásios**, a "
+            "**Elite dos 4**, o **Campeão** e os **covis lendários**.\n\n"
             "🎖️ Cada vitória dá uma **insígnia** + moedas + itens.\n"
             "📈 Insígnias **aumentam o tamanho do seu time**.\n"
-            "💠 No fim te espera a **Câmara dos Míticos** (6 míticos Nv100)!\n\n"
-            "Desafie com **`{p}gym <número/nome>`**. Veja suas medalhas em **`{p}badges`**."
+            "💠 No fim te espera a **Câmara dos Míticos** (6 míticos Nv100)!"
         ),
         "img": lambda: _img_explore("Onix"),
     },
     {
-        "title": "💰 Passo 6 — Economia & Itens",
+        "title": "💰 Passo 6 — Economia & Mercado",
         "color": 0xF1C40F,
         "desc": (
-            "Junte PokéCoins e gaste com sabedoria!\n\n"
-            "🎁 **`{p}daily`** — recompensa diária (mantenha o streak!)\n"
-            "💳 **`{p}balance`** — quanto você tem\n"
-            "🛒 **`{p}shop`** e **`{p}buy <item>`** — bolas, pedras, doces…\n"
-            "🎒 **`{p}items`** e **`{p}use <item> <#>`** — use pedras de evolução, Rare Candy, etc.\n"
-            "📦 **`{p}coletar`** — abra caixas de loot que aparecem no chat"
+            "Junte PokéCoins e gaste com sabedoria, tudo no **`/menu`**:\n\n"
+            "🎁 **Missões** — pegue a **recompensa diária** (mantenha o streak!)\n"
+            "🛒 **Loja** — compre bolas, pedras e doces com um clique\n"
+            "🏪 **Market** — **compre** pokémon de outros treinadores ou **anuncie** os seus\n"
+            "👤 **Perfil** — veja seu nível, moedas e estatísticas"
         ),
         "img": _img_coins,
     },
@@ -286,11 +284,10 @@ STEPS = [
         "title": "🧬 Passo 7 — Evolução",
         "color": 0x9B59B6,
         "desc": (
-            "Deixe seus pokémon mais fortes!\n\n"
-            "⬆️ **Por nível** — batalhe e suba de nível; muitos evoluem sozinhos\n"
-            "💎 **Por pedra** — use **`{p}use fire-stone <#>`** (e outras pedras)\n"
-            "🍬 **Rare Candy** — **`{p}use rare-candy <#>`** dá +1 nível na hora\n\n"
-            "Acompanhe a evolução de cada espécie em **`{p}species <nome>`**."
+            "Deixe seus pokémon mais fortes! Na **Coleção** do `/menu`, abra um pokémon e clique em **🧬 Evoluir**.\n\n"
+            "⬆️ **Por nível** — batalhe, suba de nível e evolua\n"
+            "🔀 **Evolução dupla** — pokémon como Eevee e Slowpoke deixam **você escolher** a forma!\n"
+            "💎 **Por pedra / 🍬 Rare Candy** — compre na 🛒 Loja e use na própria Coleção"
         ),
         "img": lambda: _img_grid([("Charmander", "Nv1"), ("Charmeleon", "Nv16"), ("Charizard", "Nv36")]),
     },
@@ -298,11 +295,12 @@ STEPS = [
         "title": "✅ Pronto, treinador!",
         "color": 0x2ECC71,
         "desc": (
-            "Você já sabe o essencial! Resumo rápido:\n\n"
-            "🌿 `{p}explore` → 🎯 capture → 📦 `{p}pokemon` → ⚔️ `{p}duel` → 🏆 `{p}gyms`\n\n"
-            "📋 **`{p}quests`** te dá missões diárias com recompensas.\n"
-            "📈 **`{p}profile`** mostra seu progresso e **`{p}top`** o ranking.\n\n"
-            "Tudo pronto? Digite **`{p}start`** e boa sorte! Veja a lista completa em **`{p}help`**. 🎉"
+            "Você já sabe o essencial! É tudo por **um comando**:\n\n"
+            "## 🎮 `/menu`\n"
+            "Lá dentro: 🌿 Explorar · ⚔️ Duelar · 📦 Coleção · 🎒 Time · 🛒 Loja · "
+            "🏪 Market · 🏆 Liga · 📋 Missões · 👤 Perfil.\n\n"
+            "Tudo **privado** (só você vê) — o chat fica limpo. 🧹\n\n"
+            "Ainda não começou? Digite **`/start`** e boa sorte! 🎉"
         ),
         "img": lambda: _img_explore("Mew"),
     },
@@ -330,7 +328,7 @@ class TutorialView(discord.ui.View):
             description=step["desc"].format(p=self.prefix),
             color=step["color"],
         )
-        emb.set_footer(text=f"Tutorial • passo {self.i + 1} de {len(STEPS)}  •  {self.prefix}help = lista completa")
+        emb.set_footer(text=f"Tutorial • passo {self.i + 1} de {len(STEPS)}  •  /help = lista completa")
         file = None
         factory = step.get("img")
         if factory is not None:
@@ -350,9 +348,12 @@ class TutorialView(discord.ui.View):
             return False
         return True
 
-    async def start(self) -> None:
+    async def start(self, ephemeral: bool = False) -> None:
         emb, file = await self._build()
-        self.message = await self.ctx.send(embed=emb, view=self, **({"file": file} if file else {}))
+        kwargs = {"embed": emb, "view": self, "ephemeral": ephemeral}
+        if file:
+            kwargs["file"] = file
+        self.message = await self.ctx.send(**kwargs)
 
     async def _show(self, interaction: discord.Interaction) -> None:
         self._sync()
@@ -389,34 +390,35 @@ class HelpTutorial(commands.Cog, name="Ajuda"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @commands.command(name="help", aliases=["ajuda", "comandos", "commands"])
+    @commands.hybrid_command(name="help", aliases=["ajuda", "comandos", "commands"])
     async def help_cmd(self, ctx: commands.Context, *, alvo: str | None = None) -> None:
         """Mostra a ajuda interativa com todas as categorias e comandos."""
+        eph = ctx.interaction is not None
         is_admin = ctx.guild is not None and ctx.author.guild_permissions.manage_guild
 
         # help <comando> -> detalhe
         if alvo:
             cmd = self.bot.get_command(alvo.lower())
             if cmd is not None and not cmd.hidden:
-                await ctx.send(embed=build_command(ctx.prefix, cmd))
+                await ctx.send(embed=build_command(ctx.prefix, cmd), ephemeral=eph)
                 return
             # help <categoria> -> abre naquela categoria
             match = next((n for n, _ in CATEGORIES if n.lower() == alvo.lower()), None)
             if match and _can_see(match, is_admin):
-                await ctx.send(embed=build_category(self.bot, ctx.prefix, match))
+                await ctx.send(embed=build_category(self.bot, ctx.prefix, match), ephemeral=eph)
                 return
             await ctx.send(embed=embeds.err_embed(
-                f"Não achei `{alvo}`. Veja a lista com `{ctx.prefix}help`."))
+                f"Não achei `{alvo}`. Veja a lista com `/help`."), ephemeral=eph)
             return
 
         view = HelpView(ctx, is_admin)
         view.message = await ctx.send(
-            embed=build_overview(self.bot, ctx.prefix, is_admin), view=view)
+            embed=build_overview(self.bot, ctx.prefix, is_admin), view=view, ephemeral=eph)
 
-    @commands.command(name="tutorial", aliases=["guia", "tuto", "comojoga"])
+    @commands.hybrid_command(name="tutorial", aliases=["guia", "tuto", "comojoga"])
     async def tutorial_cmd(self, ctx: commands.Context) -> None:
         """Guia visual interativo: aprenda as mecânicas passo a passo."""
-        await TutorialView(ctx).start()
+        await TutorialView(ctx).start(ephemeral=ctx.interaction is not None)
 
 
 async def setup(bot: commands.Bot) -> None:
