@@ -74,6 +74,8 @@ class PokeBot(commands.Bot):
         self.prefix_cache: dict[int, str] = {}
         # cache dos canais de jogo por servidor (lista vazia = liberado em qualquer canal)
         self.game_channels_cache: dict[int, list[int]] = {}
+        # garante o sync dos comandos de barra (/) só uma vez por processo
+        self._slash_synced = False
         # verificação global: trava comandos fora dos canais de jogo
         self.add_check(self._channel_lock_check)
 
@@ -92,6 +94,19 @@ class PokeBot(commands.Bot):
     async def on_ready(self) -> None:
         log.info("Conectado como %s (ID %s)", self.user, self.user.id if self.user else "?")
         log.info("Servidores: %d", len(self.guilds))
+        # publica os comandos de barra (/) em cada servidor — instantâneo (1x por processo)
+        if not self._slash_synced:
+            self._slash_synced = True
+            for guild in self.guilds:
+                try:
+                    self.tree.copy_global_to(guild=guild)
+                    cmds = await self.tree.sync(guild=guild)
+                    log.info("Slash sync em %s: %d comando(s)", guild.id, len(cmds))
+                except discord.Forbidden:
+                    log.warning("Sem escopo 'applications.commands' em %s — reconvide o bot "
+                                "com esse escopo para o /menu aparecer.", guild.id)
+                except Exception:
+                    log.exception("Falha no slash sync em %s", guild.id)
 
     def update_prefix_cache(self, guild_id: int, prefix: str) -> None:
         self.prefix_cache[guild_id] = prefix
