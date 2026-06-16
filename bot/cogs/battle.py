@@ -153,10 +153,13 @@ def ai_choose_move(attacker: BattleMon, defender: BattleMon) -> Move:
 class BattleView(discord.ui.View):
     def __init__(self, cog: "Battle", ctx, p1_team: list[BattleMon], p2_team: list[BattleMon],
                  p1_id: int, p2_id: int | None, on_finish=None,
-                 battle_channel=None, temp_channel=None, opponent_name=None):
+                 battle_channel=None, temp_channel=None, opponent_name=None, end_view=None):
         super().__init__(timeout=180)
         self.cog = cog
         self.ctx = ctx
+        # se definido, ao fim da batalha a mensagem troca para esta View (ex.: voltar
+        # ao hub com botão "Duelar de novo"). Usado nas batalhas privadas do /menu.
+        self.end_view = end_view
         # canal onde a batalha é postada (pode ser uma arena privada)
         self.battle_channel = battle_channel or ctx.channel
         # se definido, esse canal é deletado 10s após o fim
@@ -292,6 +295,22 @@ class BattleView(discord.ui.View):
         emb, file = await self._render()
         self.message = await self.battle_channel.send(
             content=content, embed=emb, view=self, **({"file": file} if file else {}))
+
+    async def start_hosted(self, interaction: discord.Interaction) -> None:
+        """Inicia a batalha EDITANDO a mensagem da interação (ex.: o /menu ephemeral).
+
+        Assim o duelo PvE fica privado (só o jogador vê) e na mesma mensagem.
+        """
+        emb, file = await self._render()
+        attachments = [file] if file else []
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=emb, view=self, attachments=attachments)
+        else:
+            await interaction.response.edit_message(embed=emb, view=self, attachments=attachments)
+        try:
+            self.message = await interaction.original_response()
+        except discord.HTTPException:
+            pass
 
     async def _cleanup_channel(self) -> None:
         """Apaga a arena privada 10s após o fim da batalha."""
@@ -494,8 +513,12 @@ class BattleView(discord.ui.View):
         emb.color = settings.color_success
         result = await self.cog.award(winner_id, winner_team, loser_rep, self.is_pve, loser_id)
         emb.add_field(name="Resultado", value=result, inline=False)
+        # batalha privada (hub): troca para a View de fim (botões Duelar de novo / Menu)
+        final_view = self.end_view if self.end_view is not None else self
+        if self.end_view is not None:
+            self.end_view.message = self.message
         await interaction.response.edit_message(
-            embed=emb, view=self, attachments=([file] if file else []))
+            embed=emb, view=final_view, attachments=([file] if file else []))
         if self.on_finish is not None:
             try:
                 await self.on_finish(winner_rep, loser_rep)

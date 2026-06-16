@@ -73,6 +73,9 @@ class HubView(discord.ui.View):
         self.encounter: dict | None = None         # {species, shiny, level, location, phase}
         self.result: tuple | None = None           # ('nothing'|'coins'|'caught'|'fled'|'battle', dados)
         self.last_explore = 0.0
+        # True quando a mensagem foi "entregue" a uma batalha (evita o timeout do
+        # hub sobrescrever a batalha em andamento na mesma mensagem ephemeral)
+        self.handed_off = False
         # dados em cache para montar selects (preenchidos no render)
         self._opts: list[discord.SelectOption] = []
 
@@ -114,6 +117,8 @@ class HubView(discord.ui.View):
             embed=emb, view=self, ephemeral=ephemeral, **({"file": file} if file else {}))
 
     async def on_timeout(self) -> None:
+        if self.handed_off:   # a mensagem agora é de uma batalha — não mexer
+            return
         for c in self.children:
             c.disabled = True
         if self.message:
@@ -759,6 +764,7 @@ class HubView(discord.ui.View):
         await self.show(interaction)
 
     async def do_duel(self, interaction):
+        from bot.cogs.battle import BattleView, build_wild_mon, pick_balanced_wild_species
         battle_cog = self.ctx.bot.get_cog("Batalha")
         if battle_cog is None:
             self.flash = "Batalha indisponível."
@@ -767,15 +773,17 @@ class HubView(discord.ui.View):
         if not p1_team:
             self.flash = f"⚠️ {err}"
             return await self.show(interaction)
-        self.flash = "⚔️ Duelo iniciado **no canal**! Boa sorte, treinador."
-        self.goto("home")
-        await self.show(interaction)
-        from bot.cogs.battle import pick_balanced_wild_species, build_wild_mon
         lead = p1_team[0]
         species = pick_balanced_wild_species(lead.species)
         level = max(1, lead.level - random.randint(0, 2))
         p2_team = [build_wild_mon(species, level)]
-        await battle_cog.launch_battle(self.ctx, p1_team, p2_team, self.author_id, None)
+        # roda a batalha DENTRO da mensagem do /menu (privada). Ao fim, mostra
+        # botões "Duelar de novo" / "Menu" (PostBattleView).
+        self.handed_off = True
+        bview = BattleView(battle_cog, self.ctx, p1_team, p2_team, self.author_id, None,
+                           end_view=PostBattleView(self, "duel"))
+        bview.message = self.message
+        await bview.start_hosted(interaction)
 
     async def open_price_modal(self, interaction, idx: int):
         await interaction.response.send_modal(PriceModal(self, idx))
@@ -903,6 +911,7 @@ class HubView(discord.ui.View):
         await self.ctx.bot.announce_rare(self.ctx.guild, self.ctx.author, sp, shiny, level)
 
     async def _explore_battle(self, interaction):
+        from bot.cogs.battle import BattleView, build_wild_mon
         enc = self.encounter
         battle_cog = self.ctx.bot.get_cog("Batalha")
         if battle_cog is None:
@@ -914,21 +923,13 @@ class HubView(discord.ui.View):
             return await self.show(interaction)
         sp, level, shiny = enc["species"], enc["level"], enc["shiny"]
         self.encounter = None
-        self.result = ("battle", f"⚔️ Batalha contra **{sp.name}** (Nv {level}) iniciada **no canal**! "
-                                 f"Boa sorte, treinador.")
-        await self.show(interaction)
-        from bot.cogs.battle import build_wild_mon
         p2_team = [build_wild_mon(sp, level, shiny=shiny)]
-        species, explorer_id, ctx = sp, self.author_id, self.ctx
-
-        async def on_finish(winner, loser):
-            if winner.owner_id == explorer_id:
-                await ctx.channel.send(embed=embeds.ok_embed(
-                    "Vitória! 🏆", f"Você derrotou o **{species.name}** selvagem!"))
-            else:
-                await ctx.channel.send(embed=embeds.info_text(f"O **{species.name}** selvagem te derrotou... 💨"))
-
-        await battle_cog.launch_battle(ctx, p1_team, p2_team, explorer_id, None, on_finish=on_finish)
+        # batalha privada na própria mensagem; ao fim: "Explorar de novo" / "Menu"
+        self.handed_off = True
+        bview = BattleView(battle_cog, self.ctx, p1_team, p2_team, self.author_id, None,
+                           end_view=PostBattleView(self, "explore"))
+        bview.message = self.message
+        await bview.start_hosted(interaction)
 
 
 # --------------------------------------------------------------------------
@@ -1019,6 +1020,53 @@ class ChoiceSelect(discord.ui.Select):
             await self._hub.open_market_listing(interaction, int(v))
         elif self._kind == "sell":
             await self._hub.open_price_modal(interaction, int(v))
+
+
+class PostBattleView(discord.ui.View):
+    """Botões mostrados ao fim de uma batalha privada do hub (na mesma mensagem)."""
+
+    def __init__(self, hub: "HubView", mode: str):
+        super().__init__(timeout=180)
+        self.hub = hub
+        self.message = hub.message
+        again = (("duel_again", "Duelar de novo", "⚔️") if mode == "duel"
+                 else ("explore_again", "Explorar de novo", "🌿"))
+        self.add_item(PostBtn(hub, again[0], again[1], again[2], discord.ButtonStyle.success))
+        self.add_item(PostBtn(hub, "menu", "Menu", "🏠", discord.ButtonStyle.secondary))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.hub.author_id:
+            await interaction.response.send_message("Esse painel não é seu. 😉", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self) -> None:
+        for c in self.children:
+            c.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
+class PostBtn(discord.ui.Button):
+    def __init__(self, hub, action, label, emoji, style):
+        super().__init__(label=label, emoji=emoji, style=style)
+        self._hub, self._action = hub, action
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if self.view is not None:
+            self.view.stop()  # encerra esta View (evita o timeout atropelar o que vem)
+        fresh = HubView(self._hub.ctx)      # hub novo e "vivo" para navegar
+        fresh.message = self._hub.message
+        if self._action == "duel_again":
+            await fresh.do_duel(interaction)
+        elif self._action == "explore_again":
+            await fresh.do_explore(interaction)
+        else:  # menu
+            fresh.goto("home")
+            await fresh.show(interaction)
 
 
 class PriceModal(discord.ui.Modal, title="📢 Anunciar no mercado"):
