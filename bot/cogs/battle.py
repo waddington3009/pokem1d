@@ -223,7 +223,11 @@ class BattleView(discord.ui.View):
             team, active = self._team(side)
             if self._reserves(team, active):
                 self.add_item(TrocaButton(self))
-            self.add_item(ForfeitButton(self))
+            # PvE: "Recuar" (foge limpo, sem derrota). PvP: "Desistir" (entrega a vitória).
+            if self.is_pve:
+                self.add_item(FleeButton(self))
+            else:
+                self.add_item(ForfeitButton(self))
         elif self.phase.startswith(("sw_", "fsw_")):
             forced = self.phase.startswith("fsw_")
             side = self._phase_side()
@@ -488,6 +492,21 @@ class BattleView(discord.ui.View):
         self._build()
         await self._safe_edit(interaction)
 
+    async def _flee(self, interaction: discord.Interaction) -> None:
+        """Foge de uma batalha PvE — sem vitória/derrota nem recompensa."""
+        self.finished = True
+        self.clear_items()
+        emb = discord.Embed(
+            title="💨 Você recuou!",
+            description="Você fugiu da batalha em segurança. Sem ganhos, mas sem perdas.",
+            color=settings.color_info,
+        )
+        final_view = self.end_view if self.end_view is not None else self
+        if self.end_view is not None:
+            self.end_view.message = self.message
+        await interaction.response.edit_message(embed=emb, view=final_view, attachments=[])
+        self.stop()
+
     async def _end(self, interaction: discord.Interaction) -> None:
         self.finished = True
         p1_alive = any(m.alive for m in self.p1_team)
@@ -587,6 +606,18 @@ class VoltarButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await self._bv.on_voltar(interaction)
+
+
+class FleeButton(discord.ui.Button):
+    def __init__(self, view: BattleView):
+        super().__init__(label="Recuar", emoji="💨", style=discord.ButtonStyle.secondary, row=1)
+        self._bv = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self._bv.p1_id:
+            await interaction.response.send_message("Você não está nesta batalha.", ephemeral=True)
+            return
+        await self._bv._flee(interaction)
 
 
 class ForfeitButton(discord.ui.Button):
