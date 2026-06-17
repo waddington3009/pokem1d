@@ -25,9 +25,45 @@ from bot.database.db import session_scope
 from bot.database.models import MarketListing, PokedexEntry, Pokemon, User
 from bot.utils import embeds, helpers
 from bot.utils.images import render_grid
-from bot.utils.progression import ACHIEVEMENTS, claim_quest, quest_state
+from bot.utils.progression import ACHIEVEMENTS, bump_quest, claim_quest, quest_state
 from bot.utils.rarity import RARITY_EMOJI, pick_spawn_species, rarity_label, roll_shiny
+from bot.utils.stats import apply_xp
 from bot.utils.team_scene import render_team
+
+
+def _stone_item_for(step):
+    """Acha o item de pedra que dispara uma evolução por pedra."""
+    for it in ITEMS.values():
+        if it.category == "stone" and it.stone == step.stone:
+            return it
+    return None
+
+
+def _evo_info(sp, level: int, inv: dict) -> tuple[str, str]:
+    """Texto claro sobre a evolução: por nível, por pedra, especial ou nenhuma."""
+    evos = sp.eligible_level_evos(level)
+    level_evos = [e for e in sp.evolutions if e.method == "level"]
+    stone_evos = [e for e in sp.evolutions if e.method == "stone"]
+    other_evos = [e for e in sp.evolutions if e.method in ("trade", "friendship")]
+    if evos:
+        alvos = ", ".join(POKEDEX.get(e.to).name for e in evos)
+        return "🧬 Pronto para evoluir!", f"→ **{alvos}**\nClique em **🧬 Evoluir** abaixo."
+    if level_evos:
+        need = min(e.level for e in level_evos)
+        return "🧬 Evolução", f"Evolui no **nível {need}** (faltam **{max(0, need - level)}** níveis)."
+    if stone_evos:
+        parts = []
+        for e in stone_evos:
+            sit = _stone_item_for(e)
+            tgt = POKEDEX.get(e.to).name
+            if sit:
+                tem = inv.get(sit.key, 0) > 0
+                parts.append(f"{sit.emoji} **{sit.name}** → {tgt} "
+                             f"{'✅ você tem!' if tem else '❌ compre na 🛒 Loja'}")
+        return "🧬 Evolui com pedra", "\n".join(parts) + "\n*Clique em **🧬 Evoluir** para usar a pedra.*"
+    if other_evos:
+        return "🧬 Evolução especial", "Evolui por troca/amizade (ainda não disponível)."
+    return "🔒 Evolução", "**Não evolui mais** — é a forma final! 🏆"
 
 PER_PAGE_DEX = 9
 PER_PAGE_SHOP = 6
@@ -69,6 +105,8 @@ class HubView(discord.ui.View):
         self.detail_idx: int | None = None
         self.shop_key: str | None = None
         self.market_id: int | None = None
+        self.use_item_key: str | None = None       # item escolhido na mochila
+        self.rank_type: str = "caught"             # categoria do ranking
         self.select_mode: str | None = None       # add | remove | lead
         self.encounter: dict | None = None         # {species, shiny, level, location, phase}
         self.result: tuple | None = None           # ('nothing'|'coins'|'caught'|'fled'|'battle', dados)
@@ -134,12 +172,14 @@ class HubView(discord.ui.View):
         if s == "home":
             self.add_item(NavBtn(self, "explorar", "Explorar", "🌿", discord.ButtonStyle.success, 0, action="explore"))
             self.add_item(NavBtn(self, "home", "Duelar", "⚔️", discord.ButtonStyle.success, 0, action="duel"))
-            self.add_item(NavBtn(self, "time", "Time", "🎒", discord.ButtonStyle.primary, 0))
             self.add_item(NavBtn(self, "colecao", "Coleção", "📦", discord.ButtonStyle.primary, 0))
+            self.add_item(NavBtn(self, "time", "Time", "👥", discord.ButtonStyle.primary, 0))
             self.add_item(NavBtn(self, "loja", "Loja", "🛒", discord.ButtonStyle.primary, 1))
+            self.add_item(NavBtn(self, "mochila", "Mochila", "🎒", discord.ButtonStyle.primary, 1))
             self.add_item(NavBtn(self, "market", "Market", "🏪", discord.ButtonStyle.primary, 1))
             self.add_item(NavBtn(self, "liga", "Liga", "🏆", discord.ButtonStyle.primary, 1))
-            self.add_item(NavBtn(self, "missoes", "Missões", "📋", discord.ButtonStyle.primary, 1))
+            self.add_item(NavBtn(self, "missoes", "Missões", "📋", discord.ButtonStyle.primary, 2))
+            self.add_item(NavBtn(self, "ranking", "Ranking", "📊", discord.ButtonStyle.primary, 2))
             self.add_item(NavBtn(self, "perfil", "Perfil", "👤", discord.ButtonStyle.primary, 2))
             self.add_item(CloseBtn(self, row=2))
         elif s == "time":
@@ -150,7 +190,26 @@ class HubView(discord.ui.View):
         elif s == "time_select":
             if self._opts:
                 self.add_item(ChoiceSelect(self, "party", "Escolha um pokémon...", self._opts))
+            if self.select_mode == "add":   # 'add' lista toda a coleção -> pagina
+                self.add_item(PageBtn(self, -1, "◀️", 1))
+                self.add_item(PageBtn(self, +1, "▶️", 1))
             self.add_item(NavBtn(self, "time", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
+        elif s == "mochila":
+            if self._opts:
+                self.add_item(ChoiceSelect(self, "useitem", "Usar um item...", self._opts, row=0))
+            self.add_item(HomeBtn(self, 1))
+        elif s == "use_target":
+            if self._opts:
+                self.add_item(ChoiceSelect(self, "usetarget", "Usar em qual pokémon?", self._opts, row=0))
+            self.add_item(PageBtn(self, -1, "◀️", 1))
+            self.add_item(PageBtn(self, +1, "▶️", 1))
+            self.add_item(NavBtn(self, "mochila", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
+        elif s == "ranking":
+            cats = [("caught", "🎯"), ("shiny", "✨"), ("coins", "💰"),
+                    ("battles", "⚔️"), ("level", "🎖️"), ("badges", "🏅")]
+            for i, (t, e) in enumerate(cats):
+                self.add_item(RankBtn(self, t, e, row=0 if i < 3 else 1))
+            self.add_item(HomeBtn(self, 2))
         elif s == "colecao":
             if self._opts:
                 self.add_item(ChoiceSelect(self, "detail", "Ver detalhes de...", self._opts, row=0))
@@ -294,24 +353,27 @@ class HubView(discord.ui.View):
             self._opts = []
             if self.select_mode == "add":
                 mons = await helpers.list_pokemon(session, user.id)
-                for m in mons:
-                    if m.idx in party:
-                        continue
+                cand = [m for m in mons if m.idx not in party and POKEDEX.get(m.species_id)]
+                pages = max(1, (len(cand) + 24) // 25)
+                self.page %= pages
+                for m in cand[self.page * 25:(self.page + 1) * 25]:
                     sp = POKEDEX.get(m.species_id)
-                    if sp:
-                        self._opts.append(discord.SelectOption(
-                            label=f"#{m.idx} {sp.name}"[:100], description=f"Nv {m.level} · IV {m.iv_percent:.0f}%",
-                            value=str(m.idx)))
-                    if len(self._opts) >= 25:
-                        break
-                titulo, desc = "➕ Adicionar ao time", f"Escolha quem entra (time {len(party)}/{pmax})."
+                    fav = "❤️ " if m.favorite else ""
+                    self._opts.append(discord.SelectOption(
+                        label=f"{fav}#{m.idx} {sp.name}"[:100],
+                        description=f"Nv {m.level} · IV {m.iv_percent:.0f}% · {getattr(m, 'nature', '')}"[:100],
+                        value=str(m.idx)))
+                titulo = "➕ Adicionar ao time"
+                desc = f"Escolha quem entra (time {len(party)}/{pmax}) — **pág {self.page + 1}/{pages}**."
             else:
                 for idx in party:
                     poke = await helpers.get_pokemon_by_idx(session, user.id, idx)
                     if poke:
                         sp = POKEDEX.get(poke.species_id)
+                        fav = "❤️ " if poke.favorite else ""
                         self._opts.append(discord.SelectOption(
-                            label=f"#{idx} {sp.name}"[:100], description=f"Nv {poke.level}", value=str(idx)))
+                            label=f"{fav}#{idx} {sp.name}"[:100],
+                            description=f"Nv {poke.level} · IV {poke.iv_percent:.0f}%"[:100], value=str(idx)))
                 titulo = "➖ Remover do time" if self.select_mode == "remove" else "⭐ Definir líder"
                 desc = "Escolha um pokémon do seu time."
         emb = discord.Embed(title=titulo, description=desc, color=settings.color_info)
@@ -333,9 +395,10 @@ class HubView(discord.ui.View):
         self.page %= pages
         sl = rows[self.page * PER_PAGE_DEX:(self.page + 1) * PER_PAGE_DEX]
         entries = [(sp.id, m.shiny, sp.name, f"#{m.idx} Nv{m.level}") for m, sp in sl]
-        self._opts = [discord.SelectOption(label=f"#{m.idx} {sp.name}"[:100],
-                                           description=f"Nv {m.level} · IV {m.iv_percent:.0f}%", value=str(m.idx))
-                      for m, sp in sl]
+        self._opts = [discord.SelectOption(
+            label=f"{'❤️ ' if m.favorite else ''}#{m.idx} {sp.name}"[:100],
+            description=f"Nv {m.level} · IV {m.iv_percent:.0f}% · {getattr(m, 'nature', '')}"[:100], value=str(m.idx))
+            for m, sp in sl]
         emb = discord.Embed(title=f"📦 Coleção ({len(rows)}) — pág {self.page + 1}/{pages}", color=settings.color_info)
         buf = await render_grid(entries, cols=3)
         file = discord.File(buf, filename="dex.png") if buf else None
@@ -352,23 +415,21 @@ class HubView(discord.ui.View):
                 self.goto("colecao")
                 return await self._s_colecao()
             sp = POKEDEX.get(poke.species_id)
+            inv = await helpers.get_inventory(session, user.id)
+            evo_title, evo_text = _evo_info(sp, poke.level, inv)
             data = dict(name=sp.name, idx=poke.idx, lv=poke.level, iv=poke.iv_percent,
                         shiny=poke.shiny, fav=poke.favorite, types=sp.types, sid=sp.id, rarity=sp.rarity,
-                        evos=sp.eligible_level_evos(poke.level), all_level=[e for e in sp.evolutions if e.method == "level"])
-        types = " ".join(f"{t.title()}" for t in data["types"])
+                        nature=getattr(poke, "nature", ""), evo_title=evo_title, evo_text=evo_text)
+        types = " ".join(t.title() for t in data["types"])
         emb = discord.Embed(
             title=f"{'✨ ' if data['shiny'] else ''}{data['name']}  #{data['idx']}",
             color=settings.color_shiny if data["shiny"] else settings.color_default,
             description=(f"{RARITY_EMOJI.get(data['rarity'],'')} {rarity_label(data['rarity'])} · {types}\n"
-                        f"**Nível {data['lv']}** · IV **{data['iv']:.1f}%**\n"
+                        f"**Nível {data['lv']}** · IV **{data['iv']:.1f}%**"
+                        + (f" · 🧪 {data['nature']}" if data["nature"] else "") + "\n"
                         f"{'❤️ Favorito' if data['fav'] else '🤍 Não favorito'}"))
         emb.set_image(url=settings.sprite_animated(data["sid"], shiny=data["shiny"]))
-        if data["evos"]:
-            alvos = ", ".join(POKEDEX.get(e.to).name for e in data["evos"])
-            emb.add_field(name="🧬 Pode evoluir para", value=alvos, inline=False)
-        elif data["all_level"]:
-            need = min(e.level for e in data["all_level"])
-            emb.add_field(name="🧬 Evolução", value=f"No nível {need}.", inline=False)
+        emb.add_field(name=data["evo_title"], value=data["evo_text"], inline=False)
         return emb, None
 
     async def _s_evolve_choice(self):
@@ -504,6 +565,69 @@ class HubView(discord.ui.View):
                             color=settings.color_info)
         if not self._opts:
             emb.description = "Nenhum pokémon disponível para anunciar."
+        return emb, None
+
+    async def _s_mochila(self):
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            inv = await helpers.get_inventory(session, user.id)
+        grouped, self._opts = {}, []
+        for key, qty in sorted(inv.items()):
+            it = get_item(key)
+            if it is None or qty <= 0:
+                continue
+            grouped.setdefault(it.category, []).append(f"{it.emoji} **{it.name}** ×{qty}")
+            if it.category in ("stone", "booster", "lure"):
+                self._opts.append(discord.SelectOption(
+                    label=f"{it.name} ×{qty}"[:100], description=it.description[:100],
+                    value=it.key, emoji=it.emoji))
+        labels = {"ball": "🎯 Pokébolas", "stone": "💎 Pedras", "lure": "🪔 Incensos",
+                  "booster": "📈 Boosters", "misc": "📦 Outros"}
+        emb = discord.Embed(title="🎒 Mochila", color=settings.color_info)
+        if not grouped:
+            emb.description = "Vazia! Compre itens na 🛒 Loja."
+            return emb, None
+        for cat, label in labels.items():
+            if cat in grouped:
+                emb.add_field(name=label, value="\n".join(grouped[cat]), inline=False)
+        emb.set_footer(text="Escolha um item no menu para usar.")
+        return emb, None
+
+    async def _s_use_target(self):
+        it = get_item(self.use_item_key)
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            mons = await helpers.list_pokemon(session, user.id)
+        rows = [(m, POKEDEX.get(m.species_id)) for m in mons]
+        rows = [(m, sp) for m, sp in rows if sp]
+        pages = max(1, (len(rows) + 24) // 25)
+        self.page %= pages
+        self._opts = [discord.SelectOption(
+            label=f"{'❤️ ' if m.favorite else ''}#{m.idx} {sp.name}"[:100],
+            description=f"Nv {m.level} · IV {m.iv_percent:.0f}% · {getattr(m, 'nature', '')}"[:100],
+            value=str(m.idx)) for m, sp in rows[self.page * 25:(self.page + 1) * 25]]
+        emb = discord.Embed(title=f"{it.emoji if it else '🎒'} Usar {it.name if it else 'item'}",
+                            description=f"Em qual pokémon? — pág {self.page + 1}/{pages}",
+                            color=settings.color_info)
+        return emb, None
+
+    async def _s_ranking(self):
+        from bot.cogs.progression import LEADERBOARD_TYPES
+        col, title, unit = LEADERBOARD_TYPES.get(self.rank_type, LEADERBOARD_TYPES["caught"])
+        column = getattr(User, col)
+        async with session_scope() as session:
+            res = await session.scalars(select(User).order_by(column.desc()).limit(10))
+            users = list(res)
+        medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7
+        linhas = []
+        for i, u in enumerate(users):
+            val = getattr(u, col)
+            if val == 0 and self.rank_type != "level":
+                continue
+            linhas.append(f"{medals[i]} <@{u.discord_id}> — **{val:,}** {unit}")
+        emb = discord.Embed(title=f"📊 {title}", color=settings.color_info,
+                            description="\n".join(linhas) or "Ninguém no ranking ainda.")
+        emb.set_footer(text="Troque a categoria nos botões abaixo.")
         return emb, None
 
     async def _s_missoes(self):
@@ -694,15 +818,37 @@ class HubView(discord.ui.View):
                 self.flash = f"⭐ {sp.name} agora é o líder do time."
             elif action == "evolve":
                 steps = sp.eligible_level_evos(poke.level)
-                if not steps:
-                    lv = [e for e in sp.evolutions if e.method == "level"]
-                    self.flash = (f"{sp.name} evolui no nível {min(e.level for e in lv)}." if lv
-                                  else f"{sp.name} não evolui por nível.")
-                elif len(steps) == 1:
-                    await self._do_evolve(session, user, poke, steps[0].to)
+                if steps:
+                    if len(steps) == 1:
+                        await self._do_evolve(session, user, poke, steps[0].to)
+                    else:
+                        self.goto("evolve_choice")
+                        return await self.show(interaction)
                 else:
-                    self.goto("evolve_choice")
-                    return await self.show(interaction)
+                    stone_evos = [e for e in sp.evolutions if e.method == "stone"]
+                    level_evos = [e for e in sp.evolutions if e.method == "level"]
+                    if stone_evos:
+                        inv = await helpers.get_inventory(session, user.id)
+                        done = False
+                        for e in stone_evos:
+                            sit = _stone_item_for(e)
+                            if sit and inv.get(sit.key, 0) > 0:
+                                new = POKEDEX.get(e.to)
+                                poke.species_id = new.id
+                                await helpers.update_pokedex(session, user.id, new.id, seen=1, caught=1)
+                                await helpers.take_item(session, user.id, sit.key, 1)
+                                bump_quest(user, "evolve", 1)
+                                self.flash = f"✨ {sp.name} evoluiu para **{new.name}** usando {sit.name}!"
+                                done = True
+                                break
+                        if not done:
+                            faltam = ", ".join(_stone_item_for(e).name for e in stone_evos if _stone_item_for(e))
+                            self.flash = f"🪨 Precisa de **{faltam}**. Compre na 🛒 Loja e use aqui."
+                    elif level_evos:
+                        need = min(e.level for e in level_evos)
+                        self.flash = f"{sp.name} evolui no **nível {need}** (faltam {max(0, need - poke.level)})."
+                    else:
+                        self.flash = f"{sp.name} **não evolui mais** (forma final)."
             elif action == "release":
                 self.goto("release_confirm")
                 return await self.show(interaction)
@@ -905,6 +1051,77 @@ class HubView(discord.ui.View):
     async def open_shop_item(self, interaction, key: str):
         self.shop_key = key
         self.goto("loja_buy")
+        await self.show(interaction)
+
+    async def open_use_item(self, interaction, key: str):
+        it = get_item(key)
+        if it is None:
+            self.flash = "Item inválido."
+            self.goto("mochila")
+            return await self.show(interaction)
+        if it.category == "lure":
+            async with session_scope() as session:
+                user = await helpers.fetch_user(session, self.author_id)
+                ok = await helpers.take_item(session, user.id, it.key, 1)
+            if ok:
+                spawn = self.ctx.bot.get_cog("Spawn")
+                if spawn is not None:
+                    spawn.add_lure(self.ctx.channel.id, it.lure_minutes)
+                self.flash = f"🪔 Incenso ativado por **{it.lure_minutes} min** neste canal!"
+            else:
+                self.flash = "Você não tem esse item."
+            self.goto("mochila")
+            return await self.show(interaction)
+        self.use_item_key = key
+        self.goto("use_target")
+        await self.show(interaction)
+
+    async def use_item_on(self, interaction, idx: int):
+        it = get_item(self.use_item_key)
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            inv = await helpers.get_inventory(session, user.id)
+            if it is None or inv.get(it.key, 0) < 1:
+                self.flash = "Você não tem mais esse item."
+                self.goto("mochila")
+                return await self.show(interaction)
+            poke = await helpers.get_pokemon_by_idx(session, user.id, idx)
+            if poke is None:
+                self.flash = "Pokémon não é seu."
+                self.goto("mochila")
+                return await self.show(interaction)
+            sp = POKEDEX.get(poke.species_id)
+            if it.category == "stone":
+                step = sp.can_evolve_by_stone(it.stone)
+                if step is None:
+                    self.flash = f"❌ {sp.name} não evolui com {it.name}."
+                else:
+                    new = POKEDEX.get(step.to)
+                    poke.species_id = new.id
+                    await helpers.update_pokedex(session, user.id, new.id, seen=1, caught=1)
+                    await helpers.take_item(session, user.id, it.key, 1)
+                    bump_quest(user, "evolve", 1)
+                    self.flash = f"✨ {sp.name} evoluiu para **{new.name}** com {it.name}!"
+            elif it.category == "booster":
+                await helpers.take_item(session, user.id, it.key, 1)
+                if it.iv_boost:
+                    before = poke.iv_percent
+                    for attr in ("iv_hp", "iv_atk", "iv_def", "iv_spa", "iv_spd", "iv_spe"):
+                        setattr(poke, attr, min(31, getattr(poke, attr) + it.iv_boost))
+                    self.flash = f"💠 IV de {sp.name}: {before:.1f}% → **{poke.iv_percent:.1f}%**"
+                elif it.level_amount:
+                    before = poke.level
+                    poke.level = min(100, poke.level + it.level_amount)
+                    self.flash = f"⬆️ {sp.name}: Nv {before} → **{poke.level}**"
+                elif it.xp_amount:
+                    nl, nx, g = apply_xp(poke.level, poke.xp, it.xp_amount)
+                    poke.level, poke.xp = nl, nx
+                    self.flash = f"⭐ {sp.name} +{it.xp_amount} XP" + (f" (subiu {g} nível(is)!)" if g else "")
+                else:
+                    self.flash = "Esse item não pode ser usado assim."
+            else:
+                self.flash = "Esse item não pode ser usado assim."
+        self.goto("mochila")
         await self.show(interaction)
 
     async def buy_item(self, interaction, qty: int):
@@ -1123,6 +1340,25 @@ class ChoiceSelect(discord.ui.Select):
             await self._hub.open_price_modal(interaction, int(v))
         elif self._kind == "gym":
             await self._hub.do_gym(interaction, v)
+        elif self._kind == "useitem":
+            await self._hub.open_use_item(interaction, v)
+        elif self._kind == "usetarget":
+            await self._hub.use_item_on(interaction, int(v))
+
+
+class RankBtn(discord.ui.Button):
+    _LABELS = {"caught": "Capturas", "shiny": "Shinies", "coins": "Moedas",
+               "battles": "Vitórias", "level": "Nível", "badges": "Insígnias"}
+
+    def __init__(self, view, rtype, emoji, row):
+        super().__init__(label=self._LABELS.get(rtype, rtype), emoji=emoji,
+                         style=discord.ButtonStyle.secondary, row=row)
+        self._hub, self._rtype = view, rtype
+
+    async def callback(self, interaction):
+        self._hub.rank_type = self._rtype
+        self._hub.goto("ranking")
+        await self._hub.show(interaction)
 
 
 class PostBattleView(discord.ui.View):
