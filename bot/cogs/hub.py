@@ -355,13 +355,26 @@ class HubView(discord.ui.View):
                 PokedexEntry.user_id == user.id, PokedexEntry.caught > 0)) or 0
             sel = await helpers.get_selected(session, user)
             lider = POKEDEX.get(sel.species_id).name if sel else "—"
-            coins, badges, slots = user.coins, user.badge_count, party_slots(user.badges)
+            coins, badges, slots = user.coins, user.badge_count or 0, party_slots(user.badges)
             sel_id = sel.species_id if sel else 25
+            sel_shiny = sel.shiny if sel else False
+        dex_total = POKEDEX.count()
+        # cartão visual (arte de fundo + valores + líder no quadro). Se a arte não
+        # existir ou falhar, cai no embed de texto abaixo.
+        from bot.utils.home_scene import render_home_card
+        buf = await render_home_card(
+            coins=coins, slots=slots, leader=lider, leader_id=sel_id, leader_shiny=sel_shiny,
+            collection=total, dex=dex, dex_total=dex_total, badges=badges)
+        if buf is not None:
+            emb = discord.Embed(color=settings.color_default,
+                                description="Escolha uma opção. 👇")
+            emb.set_image(url="attachment://home.png")
+            return emb, discord.File(buf, filename="home.png")
         emb = discord.Embed(
             title="🎮 Central PokeM1D",
             description=(f"💰 **{coins:,}** PokéCoins\n"
                         f"🎒 Time **{slots} slots**  ·  ⭐ Líder: **{lider}**\n"
-                        f"📦 Coleção: **{total}**  ·  📕 Pokédex: **{dex}/{POKEDEX.count()}**\n"
+                        f"📦 Coleção: **{total}**  ·  📕 Pokédex: **{dex}/{dex_total}**\n"
                         f"🏅 Insígnias: **{badges}**\n\nEscolha uma opção. 👇"),
             color=settings.color_default)
         emb.set_thumbnail(url=settings.sprite_animated(sel_id))
