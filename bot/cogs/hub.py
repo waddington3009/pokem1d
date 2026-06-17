@@ -120,6 +120,23 @@ def _claim_daily(user) -> tuple[bool, str]:
 
 # ==========================================================================
 class HubView(discord.ui.View):
+    # painel atualmente aberto por usuário (author_id -> HubView). Impede abrir
+    # vários /menu ao mesmo tempo (cada um teria seu próprio cooldown de explorar,
+    # o que permitiria burlar a espera entre explorações).
+    _active_sessions: dict[int, "HubView"] = {}
+
+    @classmethod
+    def active_session(cls, author_id: int) -> "HubView | None":
+        v = cls._active_sessions.get(author_id)
+        return v if (v is not None and not v.is_finished()) else None
+
+    def _register_active(self) -> None:
+        HubView._active_sessions[self.author_id] = self
+
+    def _deregister_active(self) -> None:
+        if HubView._active_sessions.get(self.author_id) is self:
+            HubView._active_sessions.pop(self.author_id, None)
+
     def __init__(self, ctx: commands.Context):
         super().__init__(timeout=300)
         self.ctx = ctx
@@ -186,6 +203,7 @@ class HubView(discord.ui.View):
             embed=emb, view=self, ephemeral=ephemeral, **({"file": file} if file else {}))
 
     async def on_timeout(self) -> None:
+        self._deregister_active()   # libera o usuário para abrir um novo /menu
         if self.handed_off:   # a mensagem agora é de uma batalha — não mexer
             return
         for c in self.children:
@@ -1589,6 +1607,7 @@ class PostBtn(discord.ui.Button):
         fresh = HubView(self._hub.ctx)      # hub novo e "vivo" para navegar
         fresh.message = self._hub.message
         fresh.flash = self._hub.flash       # carrega aviso (ex.: recompensa do ginásio)
+        fresh._register_active()            # continua a mesma sessão (1 menu por usuário)
         if self._action == "duel_again":
             await fresh.do_duel(interaction)
         elif self._action == "explore_again":
@@ -1651,6 +1670,7 @@ class CloseBtn(discord.ui.Button):
             c.disabled = True
         await interaction.response.edit_message(
             content="Painel fechado. Abra de novo com `/menu`. 👋", embed=None, view=self._hub, attachments=[])
+        self._hub._deregister_active()
         self._hub.stop()
 
 
@@ -1663,21 +1683,36 @@ class Hub(commands.Cog, name="Painel"):
     @commands.guild_only()
     async def menu(self, ctx: commands.Context) -> None:
         """Abre o painel central do jogo (use /menu para o modo privado, só você vê)."""
+        # 1 painel por usuário: ter vários abertos zeraria o cooldown de explorar
+        # em cada um (burlando a espera). Se já houver um aberto, recusa.
+        if HubView.active_session(ctx.author.id) is not None:
+            aviso = ("⚠️ Você já tem um **/menu aberto**! Use o painel que já está aberto "
+                     "(ou feche-o com ❌ Fechar) antes de abrir outro.")
+            if ctx.interaction is not None:
+                await ctx.interaction.response.send_message(aviso, ephemeral=True)
+            else:
+                await ctx.send(aviso)
+            return
         view = HubView(ctx)
-        emb, file = await view.render()
-        view._build()
-        if ctx.interaction is not None:
-            # slash: SEMPRE ephemeral (só o jogador vê) — usa a API da interação direto
-            kwargs = {"embed": emb, "view": view, "ephemeral": True}
-            if file:
-                kwargs["file"] = file
-            await ctx.interaction.response.send_message(**kwargs)
-            view.message = await ctx.interaction.original_response()
-        else:
-            kwargs = {"embed": emb, "view": view}
-            if file:
-                kwargs["file"] = file
-            view.message = await ctx.send(**kwargs)
+        view._register_active()   # antes de qualquer await: fecha a janela de corrida
+        try:
+            emb, file = await view.render()
+            view._build()
+            if ctx.interaction is not None:
+                # slash: SEMPRE ephemeral (só o jogador vê) — usa a API da interação direto
+                kwargs = {"embed": emb, "view": view, "ephemeral": True}
+                if file:
+                    kwargs["file"] = file
+                await ctx.interaction.response.send_message(**kwargs)
+                view.message = await ctx.interaction.original_response()
+            else:
+                kwargs = {"embed": emb, "view": view}
+                if file:
+                    kwargs["file"] = file
+                view.message = await ctx.send(**kwargs)
+        except Exception:
+            view._deregister_active()   # falhou ao abrir: não deixa o usuário travado
+            raise
 
     @commands.command(name="sync")
     @commands.is_owner()
