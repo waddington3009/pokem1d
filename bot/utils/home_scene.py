@@ -33,9 +33,9 @@ DEBUG = False  # True = desenha guias de calibração
 COORDS: dict[str, tuple[float, float]] = {
     "coins":     (0.229, 0.345),
     "time":      (0.183, 0.496),
-    "lider":     (0.449, 0.496),
+    "lider":     (0.462, 0.496),
     "colecao":   (0.212, 0.657),
-    "pokedex":   (0.478, 0.657),
+    "pokedex":   (0.492, 0.657),
     "insignias": (0.215, 0.814),
 }
 # Quadro do líder (x0, y0, x1, y1) em fração — onde a arte do pokémon é colada.
