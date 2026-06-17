@@ -73,6 +73,8 @@ ITEMS: dict[str, Item] = {
                        "Evolui certos pokémon (ex.: Murkrow, Misdreavus).", stone="dusk"),
     "shiny-stone": Item("shiny-stone", "Shiny Stone", "🌟", "stone", 1800,
                         "Evolui certos pokémon (ex.: Togetic, Roselia).", stone="shiny"),
+    "bond-ribbon": Item("bond-ribbon", "Laço da Amizade", "🎀", "stone", 1800,
+                        "Evolui Eevee para Sylveon pelo forte laço de amizade.", stone="bond"),
 
     # ---------------- Incenso / lure ----------------
     "incense": Item(
@@ -104,7 +106,7 @@ ITEMS: dict[str, Item] = {
 SHOP_ORDER = [
     "pokeball", "greatball", "ultraball", "masterball",
     "fire-stone", "water-stone", "thunder-stone", "leaf-stone", "moon-stone", "sun-stone",
-    "dawn-stone", "dusk-stone", "shiny-stone",
+    "dawn-stone", "dusk-stone", "shiny-stone", "bond-ribbon",
     "incense", "rare-candy", "xp-booster", "iv-crystal",
 ]
 

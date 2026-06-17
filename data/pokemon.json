@@ -2766,6 +2766,11 @@
         "to": 471,
         "method": "level",
         "level": 30
+      },
+      {
+        "to": 700,
+        "method": "stone",
+        "stone": "bond"
       }
     ]
   },
@@ -12968,5 +12973,21 @@
       "spe": 122
     },
     "rarity": "superrare"
+  },
+  {
+    "id": 700,
+    "name": "Sylveon",
+    "types": [
+      "fairy"
+    ],
+    "base_stats": {
+      "hp": 95,
+      "atk": 65,
+      "def": 65,
+      "spa": 110,
+      "spd": 130,
+      "spe": 60
+    },
+    "rarity": "rare"
   }
 ]
