@@ -768,12 +768,15 @@ class HubView(discord.ui.View):
         col, title, unit = LEADERBOARD_TYPES.get(self.rank_type, LEADERBOARD_TYPES["caught"])
         column = getattr(User, col)
         async with session_scope() as session:
-            res = await session.scalars(select(User).order_by(column.desc()).limit(10))
+            # coalesce: trata NULL como 0 p/ os antigos (senão NULLS FIRST no Postgres
+            # empurraria quem realmente pontuou p/ fora do top 10)
+            res = await session.scalars(
+                select(User).order_by(func.coalesce(column, 0).desc()).limit(10))
             users = list(res)
         medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7
         linhas = []
         for i, u in enumerate(users):
-            val = getattr(u, col)
+            val = getattr(u, col) or 0   # badge_count etc. podem ser NULL no banco
             if val == 0 and self.rank_type != "level":
                 continue
             linhas.append(f"{medals[i]} <@{u.discord_id}> — **{val:,}** {unit}")
