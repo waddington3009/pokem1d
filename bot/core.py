@@ -16,9 +16,10 @@ log = logging.getLogger("pokebot")
 ALWAYS_ALLOWED = {"help", "tutorial", "ping", "botinfo", "menu", "sync", "start"}
 
 # Comandos que jogadores comuns AINDA podem usar por prefixo (o resto é só /menu).
-# Mantemos o que é PÚBLICO por natureza: captura de spawn, PvP, ginásio e troca.
-# (o duelo PvE saiu daqui de propósito — agora é privado pelo /menu → Duelar)
-PREFIX_KEEP_FOR_USERS = {"capturar", "gym", "battle", "trade"}
+# Mantemos o que é PÚBLICO por natureza: captura de spawn e ginásio.
+# (battle e trade viraram SLASH — /battle e /trade — então saíram daqui;
+#  o duelo PvE é privado pelo /menu → Duelar)
+PREFIX_KEEP_FOR_USERS = {"capturar", "gym"}
 
 
 class WrongChannel(commands.CheckFailure):

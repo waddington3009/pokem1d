@@ -733,17 +733,19 @@ class Battle(commands.Cog, name="Batalha"):
         await self.launch_battle(ctx, p1_team, p2_team, ctx.author.id, None)
 
     # ------------------------------------------------------------------
-    @commands.command(name="battle", aliases=["duelar", "lutar"])
+    @commands.hybrid_command(name="battle", aliases=["duelar", "lutar"])
     @commands.guild_only()
     async def battle(self, ctx: commands.Context, oponente: discord.Member) -> None:
-        """Desafia outro jogador para uma batalha PvP. Uso: battle @usuário."""
+        """Desafia outro jogador para uma batalha PvP. Uso: /battle @usuário."""
+        if ctx.interaction is not None:
+            await ctx.defer()   # garante o ack < 3s (o fluxo faz DB + espera aceite)
         await self._start_pvp(ctx, oponente)
 
     async def _start_pvp(self, ctx: commands.Context, oponente: discord.Member) -> None:
         if oponente.bot or oponente.id == ctx.author.id:
             await ctx.send(embed=embeds.err_embed(
-                "Escolha **outro membro** para a batalha PvP. (Para lutar contra um selvagem, use `"
-                f"{ctx.prefix}duel` sem marcar ninguém.)"))
+                "Escolha **outro membro** para a batalha PvP. "
+                "(Para lutar contra um selvagem, use o **/menu → ⚔️ Duelar**.)"))
             return
         p1_team, err1 = await self.load_team(ctx, ctx.author)
         if not p1_team:
