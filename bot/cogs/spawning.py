@@ -176,10 +176,9 @@ class Spawning(commands.Cog, name="Spawn"):
     async def spawn_loot(self, channel: discord.TextChannel) -> LootBox | None:
         """Faz uma caixa de loot cair no canal."""
         reward = roll_loot_reward()
-        prefix = self.bot.prefix_cache.get(channel.guild.id, settings.default_prefix)
         embed = discord.Embed(
             title="📦 Uma caixa de mantimentos caiu do céu!",
-            description=f"Rápido! Use `{prefix}coletar` para abrir antes dos outros! 🎁",
+            description="Rápido! Use **`/coletar`** para abrir antes dos outros! 🎁",
             color=settings.color_default,
         )
         embed.set_image(url=settings.loot_image_url)
@@ -270,7 +269,7 @@ class Spawning(commands.Cog, name="Spawn"):
         await self.spawn_loot(ctx.channel)
 
     # ------------------------------------------------------------------
-    @commands.command(name="coletar", aliases=["loot", "collect", "abrir"])
+    @commands.hybrid_command(name="coletar", aliases=["loot", "collect", "abrir"])
     @commands.guild_only()
     @commands.cooldown(1, 1.5, commands.BucketType.user)
     async def coletar(self, ctx: commands.Context) -> None:

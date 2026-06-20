@@ -312,6 +312,8 @@ class HubView(discord.ui.View):
         elif s == "market_sell":
             if self._opts:
                 self.add_item(ChoiceSelect(self, "sell", "Anunciar qual pokémon?", self._opts, row=0))
+            self.add_item(PageBtn(self, -1, "◀️", 1))
+            self.add_item(PageBtn(self, +1, "▶️", 1))
             self.add_item(NavBtn(self, "market", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
         elif s == "market_buy":
             self.add_item(ActionBtn(self, "market_yes", "Comprar", "💰", discord.ButtonStyle.success, 0))
@@ -731,23 +733,23 @@ class HubView(discord.ui.View):
             listed = set(await session.scalars(select(MarketListing.pokemon_id).where(
                 MarketListing.seller_id == user.id, MarketListing.active == True)))  # noqa: E712
             mons = await helpers.list_pokemon(session, user.id)
-            self._opts = []
-            for m in mons:
-                if m.favorite or m.id in listed:
-                    continue
-                sp = POKEDEX.get(m.species_id)
-                if sp:
-                    self._opts.append(discord.SelectOption(
-                        label=f"#{m.idx} {sp.name}"[:100],
-                        description=f"Nv {m.level} · IV {m.iv_percent:.0f}%", value=str(m.idx)))
-                if len(self._opts) >= 25:
-                    break
-        emb = discord.Embed(title="📢 Anunciar no mercado",
+        # todos os elegíveis (não-favoritos e não-anunciados), com paginação de 25
+        elegiveis = [(m, sp) for m in mons if not m.favorite and m.id not in listed
+                     and (sp := POKEDEX.get(m.species_id))]
+        self._opts = []
+        if not elegiveis:
+            return discord.Embed(title="📢 Anunciar no mercado", color=settings.color_info,
+                                 description="Nenhum pokémon disponível para anunciar."), None
+        pages = max(1, (len(elegiveis) + 24) // 25)
+        self.page %= pages
+        for m, sp in elegiveis[self.page * 25:(self.page + 1) * 25]:
+            self._opts.append(discord.SelectOption(
+                label=f"#{m.idx} {sp.name}"[:100],
+                description=f"Nv {m.level} · IV {m.iv_percent:.0f}%", value=str(m.idx)))
+        emb = discord.Embed(title=f"📢 Anunciar no mercado — pág {self.page + 1}/{pages}",
                             description="Escolha o pokémon. Depois você digita o **preço**.\n"
                                         "🔒 Favoritos e já anunciados não aparecem.",
                             color=settings.color_info)
-        if not self._opts:
-            emb.description = "Nenhum pokémon disponível para anunciar."
         return emb, None
 
     async def _s_mochila(self):
@@ -1726,6 +1728,30 @@ class Hub(commands.Cog, name="Painel"):
         except Exception:
             view._deregister_active()   # falhou ao abrir: não deixa o usuário travado
             raise
+
+    @commands.hybrid_command(name="fechar", aliases=["close", "sair"])
+    @commands.guild_only()
+    async def fechar(self, ctx: commands.Context) -> None:
+        """Fecha o seu /menu aberto (libera para abrir um novo)."""
+        view = HubView.active_session(ctx.author.id)
+        if view is None:
+            aviso = "Você não tem nenhum **/menu** aberto."
+        else:
+            view._deregister_active()
+            for c in view.children:
+                c.disabled = True
+            try:
+                if view.message is not None:
+                    await view.message.edit(content="Painel fechado. 👋", embed=None,
+                                            view=view, attachments=[])
+            except discord.HTTPException:
+                pass
+            view.stop()
+            aviso = "✅ Seu **/menu** foi fechado. Você já pode abrir um novo."
+        if ctx.interaction is not None:
+            await ctx.interaction.response.send_message(aviso, ephemeral=True)
+        else:
+            await ctx.send(aviso)
 
     @commands.command(name="sync")
     @commands.is_owner()
