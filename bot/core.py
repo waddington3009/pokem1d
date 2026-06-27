@@ -120,6 +120,19 @@ class PokeBot(commands.Bot):
                 except Exception:
                     log.exception("Falha no slash sync em %s", guild.id)
 
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """Ao entrar num servidor novo, publica os comandos / nele na hora."""
+        log.info("Entrei no servidor %s (ID %s)", guild.name, guild.id)
+        try:
+            self.tree.copy_global_to(guild=guild)
+            cmds = await self.tree.sync(guild=guild)
+            log.info("Slash sync (join) em %s: %d comando(s)", guild.id, len(cmds))
+        except discord.Forbidden:
+            log.warning("Sem escopo 'applications.commands' em %s — reconvide o bot "
+                        "com esse escopo para o /menu aparecer.", guild.id)
+        except Exception:
+            log.exception("Falha no slash sync (join) em %s", guild.id)
+
     def update_prefix_cache(self, guild_id: int, prefix: str) -> None:
         self.prefix_cache[guild_id] = prefix
 
