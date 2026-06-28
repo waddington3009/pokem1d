@@ -51,6 +51,7 @@ EXTENSIONS = [
     "bot.cogs.owner",
     "bot.cogs.help_tutorial",
     "bot.cogs.hub",
+    "bot.cogs.gamelock",
 ]
 
 

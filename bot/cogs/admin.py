@@ -188,6 +188,24 @@ class Admin(commands.Cog, name="Administração"):
                 listed = ", ".join(f"<#{c}>" for c in bl) or "—"
                 await ctx.send(embed=embeds.info_text(listed, title="🚫 Canais bloqueados"))
 
+    @commands.command(name="setuptitulos", aliases=["criartitulos", "titulos"])
+    async def setuptitulos(self, ctx: commands.Context) -> None:
+        """Cria os cargos de TÍTULO (treinador por nível) que ainda não existem."""
+        from bot.utils.titles import setup_all_title_roles
+        from bot.data.titles import TITLES
+        if not ctx.guild.me.guild_permissions.manage_roles:
+            await ctx.send(embed=embeds.err_embed(
+                "Preciso da permissão **Gerenciar Cargos** para criar os títulos."))
+            return
+        criados, total = await setup_all_title_roles(ctx.guild)
+        linhas = "\n".join(f"`Nv {lvl:>3}+` {name}" for lvl, name, _ in TITLES)
+        await ctx.send(embed=embeds.ok_embed(
+            f"🎖️ Títulos prontos! ({criados} criados, {total} no total)",
+            "Os jogadores recebem o cargo automaticamente ao abrir o **/menu** "
+            "conforme o nível de treinador.\n\n" + linhas
+            + "\n\n*Dica: arraste o cargo do bot acima desses na lista de cargos "
+            "para ele conseguir atribuí-los.*"))
+
     @commands.command(name="setlanguage", aliases=["idioma", "lang"])
     async def setlanguage(self, ctx: commands.Context, idioma: str) -> None:
         """Define o idioma do servidor (pt | en)."""

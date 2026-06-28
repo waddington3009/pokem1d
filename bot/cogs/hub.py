@@ -360,7 +360,15 @@ class HubView(discord.ui.View):
             coins, badges, slots = user.coins, user.badge_count or 0, party_slots(user.badges)
             sel_id = sel.species_id if sel else 25
             sel_shiny = sel.shiny if sel else False
+            tlevel = user.trainer_level
         dex_total = POKEDEX.count()
+        # mantém o cargo de TÍTULO do jogador em dia com o nível (cria/atribui se preciso)
+        member = self.ctx.guild.get_member(self.author_id) if self.ctx.guild else None
+        if member is not None:
+            from bot.utils.titles import sync_member_title
+            granted = await sync_member_title(member, tlevel)
+            if granted:
+                self.flash = f"🎖️ Novo título desbloqueado: **{granted}**!"
         # cartão visual (arte de fundo + valores + líder no quadro). Se a arte não
         # existir ou falhar, cai no embed de texto abaixo.
         from bot.utils.home_scene import render_home_card
@@ -1438,12 +1446,22 @@ class HubView(discord.ui.View):
             self.flash = f"⚠️ {err}"
             return await self.show(interaction)
         sp, level, shiny = enc["species"], enc["level"], enc["shiny"]
+        enc_copy = dict(enc)   # preserva p/ poder VOLTAR à escolha do encontro
         self.encounter = None
         p2_team = [build_wild_mon(sp, level, shiny=shiny)]
+
+        async def on_back(inter):
+            # "Voltar": cancela a batalha e restaura o encontro (capturar/batalhar/ignorar)
+            self.handed_off = False
+            self.encounter = {**enc_copy, "phase": "main"}
+            self.result = None
+            self.goto("explorar")
+            await self.show(inter)
+
         # batalha privada na própria mensagem; ao fim: "Explorar de novo" / "Menu"
         self.handed_off = True
         bview = BattleView(battle_cog, self.ctx, p1_team, p2_team, self.author_id, None,
-                           end_view=PostBattleView(self, "explore"))
+                           end_view=PostBattleView(self, "explore"), on_back=on_back)
         bview.message = self.message
         await bview.start_hosted(interaction)
 

@@ -153,13 +153,17 @@ def ai_choose_move(attacker: BattleMon, defender: BattleMon) -> Move:
 class BattleView(discord.ui.View):
     def __init__(self, cog: "Battle", ctx, p1_team: list[BattleMon], p2_team: list[BattleMon],
                  p1_id: int, p2_id: int | None, on_finish=None,
-                 battle_channel=None, temp_channel=None, opponent_name=None, end_view=None):
+                 battle_channel=None, temp_channel=None, opponent_name=None, end_view=None,
+                 on_back=None):
         super().__init__(timeout=180)
         self.cog = cog
         self.ctx = ctx
         # se definido, ao fim da batalha a mensagem troca para esta View (ex.: voltar
         # ao hub com botão "Duelar de novo"). Usado nas batalhas privadas do /menu.
         self.end_view = end_view
+        # se definido (explore), substitui o "Recuar" por "Voltar": cancela a batalha
+        # e devolve o jogador à tela do encontro (capturar/batalhar/ignorar).
+        self.on_back = on_back
         # canal onde a batalha é postada (pode ser uma arena privada)
         self.battle_channel = battle_channel or ctx.channel
         # se definido, esse canal é deletado 10s após o fim
@@ -223,9 +227,11 @@ class BattleView(discord.ui.View):
             team, active = self._team(side)
             if self._reserves(team, active):
                 self.add_item(TrocaButton(self))
-            # PvE: "Recuar" (foge limpo, sem derrota). PvP: "Desistir" (entrega a vitória).
+            # PvE: "Recuar" (foge limpo). No explore, "Voltar" devolve à escolha do
+            # encontro. PvP: "Desistir" (entrega a vitória).
             if self.is_pve:
-                self.add_item(FleeButton(self))
+                self.add_item(BackToEncounterButton(self) if self.on_back is not None
+                              else FleeButton(self))
             else:
                 self.add_item(ForfeitButton(self))
         elif self.phase.startswith(("sw_", "fsw_")):
@@ -620,6 +626,22 @@ class FleeButton(discord.ui.Button):
         await self._bv._flee(interaction)
 
 
+class BackToEncounterButton(discord.ui.Button):
+    """Explore: cancela a batalha e volta à escolha do encontro (capturar/batalhar/ignorar)."""
+
+    def __init__(self, view: BattleView):
+        super().__init__(label="Voltar", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+        self._bv = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self._bv.p1_id:
+            await interaction.response.send_message("Você não está nesta batalha.", ephemeral=True)
+            return
+        self._bv.finished = True   # impede o on_timeout de mexer na mensagem
+        self._bv.stop()
+        await self._bv.on_back(interaction)
+
+
 class ForfeitButton(discord.ui.Button):
     def __init__(self, view: BattleView):
         super().__init__(label="Desistir", style=discord.ButtonStyle.danger, row=1)
@@ -807,8 +829,14 @@ class Battle(commands.Cog, name="Batalha"):
         if winner_id is not None:
             level_ups = 0
             newly = []
+            bonus = 0
             async with session_scope() as session:
                 user = await helpers.fetch_user(session, winner_id)
+                # bônus de recompensa por nível de treinador (PvE): quanto mais alto o
+                # treinador, mais PokéCoins ele leva ao vencer (cap no nível 200).
+                if is_pve:
+                    bonus = int(coins * min(user.trainer_level, 200) * 0.015)
+                    coins += bonus
                 user.coins += coins
                 user.battles_won += 1
                 user.battles_total += 1
@@ -824,7 +852,8 @@ class Battle(commands.Cog, name="Batalha"):
                             poke.level, poke.xp = nl, nx
                             level_ups += g
             lines.append("🏆 **Vitória!**")
-            lines.append(f"💰 +{coins:,} PokéCoins • ⭐ +{poke_xp} XP por pokémon")
+            extra = f" *(+{bonus:,} bônus de treinador)*" if bonus else ""
+            lines.append(f"💰 +{coins:,} PokéCoins{extra} • ⭐ +{poke_xp} XP por pokémon")
             if level_ups:
                 lines.append(f"📈 Seu time subiu **{level_ups}** nível(is) no total!")
             if newly:
