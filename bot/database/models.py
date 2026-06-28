@@ -40,6 +40,8 @@ class Guild(Base):
     game_channels: Mapped[list] = mapped_column(JSON, default=list)
     # canal de anúncios de conquistas (capturas raras/shiny). None = desativado
     warning_channel_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    # canal de boas-vindas (lobby): anuncia quem entra no servidor. None = desativado
+    lobby_channel_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
     spawns_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # lista de IDs de canais bloqueados para spawn
     blacklist: Mapped[list] = mapped_column(JSON, default=list)

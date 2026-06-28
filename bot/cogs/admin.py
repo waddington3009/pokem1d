@@ -155,6 +155,27 @@ class Admin(commands.Cog, name="Administração"):
             guild.warning_channel_id = None
         await ctx.send(embed=embeds.ok_embed("Anúncios desativados", "As capturas raras não serão mais anunciadas."))
 
+    @commands.command(name="setlobby", aliases=["setboasvindas", "setwelcome", "lobby"])
+    async def setlobby(self, ctx: commands.Context, canal: discord.TextChannel | None = None) -> None:
+        """Define o canal de boas-vindas (mostra quem entra no servidor, com imagem)."""
+        canal = canal or ctx.channel
+        async with session_scope() as session:
+            guild = await get_or_create_guild(session, ctx.guild.id)
+            guild.lobby_channel_id = canal.id
+        await ctx.send(embed=embeds.ok_embed(
+            "Canal de boas-vindas definido! 👋",
+            f"Novos membros serão recebidos em {canal.mention} com uma imagem e o "
+            f"cargo **🥚 Novato de Pallet**.\n*Confira se o bot pode **Enviar Mensagens** "
+            f"e **Inserir Links** nesse canal.*"))
+
+    @commands.command(name="unsetlobby", aliases=["removerlobby", "unsetwelcome"])
+    async def unsetlobby(self, ctx: commands.Context) -> None:
+        """Desativa as boas-vindas."""
+        async with session_scope() as session:
+            guild = await get_or_create_guild(session, ctx.guild.id)
+            guild.lobby_channel_id = None
+        await ctx.send(embed=embeds.ok_embed("Boas-vindas desativadas", "Novos membros não serão mais anunciados."))
+
     @commands.command(name="togglespawns")
     async def togglespawns(self, ctx: commands.Context) -> None:
         """Ativa/desativa os spawns no servidor."""
