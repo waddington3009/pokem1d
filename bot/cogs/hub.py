@@ -299,8 +299,7 @@ class HubView(discord.ui.View):
             self.add_item(PageBtn(self, +1, "▶️", 1))
             self.add_item(HomeBtn(self, 1))
         elif s == "loja_buy":
-            for q in (1, 5, 10, 25):
-                self.add_item(BuyBtn(self, q))
+            self.add_item(BuyQtyBtn(self))
             self.add_item(NavBtn(self, "loja", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
         elif s == "market":
             if self._opts:
@@ -680,7 +679,8 @@ class HubView(discord.ui.View):
             coins = user.coins
         emb = discord.Embed(title=f"{it.emoji} {it.name}",
                             description=(f"{it.description}\n\nPreço: **{it.price:,}** 🪙 cada\n"
-                                        f"Seu saldo: **{coins:,}** 🪙\n\nEscolha a quantidade:"),
+                                        f"Seu saldo: **{coins:,}** 🪙\n\n"
+                                        f"Clique em **🛒 Comprar** e **digite a quantidade** que quiser."),
                             color=settings.color_info)
         return emb, None
 
@@ -1330,18 +1330,26 @@ class HubView(discord.ui.View):
         self.goto("mochila")
         await self.show(interaction)
 
-    async def buy_item(self, interaction, qty: int):
+    async def _do_buy(self, qty: int) -> None:
+        """Efetiva a compra de `qty` do item atual e prepara o flash (sem render)."""
         it = get_item(self.shop_key)
         custo = it.price * qty
         async with session_scope() as session:
             user = await helpers.fetch_user(session, self.author_id)
             if user.coins < custo:
-                self.flash = f"Saldo insuficiente ({custo:,} 🪙)."
+                self.flash = f"Saldo insuficiente: {qty}× {it.name} custa **{custo:,}** 🪙."
             else:
                 user.coins -= custo
                 nova = await helpers.add_item(session, user.id, it.key, qty)
-                self.flash = f"🛒 Comprou {qty}× {it.name} por {custo:,} 🪙. (tem {nova})"
+                self.flash = f"🛒 Comprou **{qty}× {it.name}** por {custo:,} 🪙. (tem {nova})"
+
+    async def buy_item(self, interaction, qty: int):
+        await self._do_buy(qty)
         await self.show(interaction)
+
+    async def buy_item_from_modal(self, interaction, qty: int):
+        await self._do_buy(qty)
+        await self.refresh_from_modal(interaction)
 
     async def open_market_listing(self, interaction, lid: int):
         self.market_id = lid
@@ -1518,13 +1526,30 @@ class EvoBtn(discord.ui.Button):
         await self._hub.evolve_to(interaction, self._to)
 
 
-class BuyBtn(discord.ui.Button):
-    def __init__(self, view, qty):
-        super().__init__(label=f"x{qty}", style=discord.ButtonStyle.success, row=0)
-        self._hub, self._q = view, qty
+class BuyQtyBtn(discord.ui.Button):
+    def __init__(self, view):
+        super().__init__(label="Comprar", emoji="🛒", style=discord.ButtonStyle.success, row=0)
+        self._hub = view
 
     async def callback(self, interaction):
-        await self._hub.buy_item(interaction, self._q)
+        await interaction.response.send_modal(BuyQtyModal(self._hub))
+
+
+class BuyQtyModal(discord.ui.Modal, title="🛒 Comprar item"):
+    qtd = discord.ui.TextInput(label="Quantidade", placeholder="Ex.: 7",
+                               min_length=1, max_length=7)
+
+    def __init__(self, hub: "HubView"):
+        super().__init__()
+        self._hub = hub
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = str(self.qtd.value).strip().replace(".", "").replace(",", "")
+        if not raw.isdigit() or not (1 <= int(raw) <= 1_000_000):
+            await interaction.response.send_message(
+                "Quantidade inválida (use só números, 1–1.000.000).", ephemeral=True)
+            return
+        await self._hub.buy_item_from_modal(interaction, int(raw))
 
 
 class BallBtn(discord.ui.Button):
