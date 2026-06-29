@@ -1284,18 +1284,33 @@ class HubView(discord.ui.View):
 
     async def use_item_on(self, interaction, idx: int):
         it = get_item(self.use_item_key)
+        # boosters (rare candy, xp, cristal de IV): pergunta a QUANTIDADE num modal
+        if it is not None and it.category == "booster":
+            return await interaction.response.send_modal(UseQtyModal(self, idx, it))
+        # pedras e demais: aplica 1 (pedra evolui uma vez)
+        await self._apply_item(idx, 1)
+        self.goto("mochila")
+        await self.show(interaction)
+
+    async def use_item_qty_from_modal(self, interaction, idx: int, qty: int):
+        await self._apply_item(idx, qty)
+        self.goto("mochila")
+        await self.refresh_from_modal(interaction)
+
+    async def _apply_item(self, idx: int, qty: int) -> None:
+        """Aplica o item atual `qty` vezes ao pokémon `idx` (pedra sempre 1). Só seta o flash."""
+        it = get_item(self.use_item_key)
         async with session_scope() as session:
             user = await helpers.fetch_user(session, self.author_id)
             inv = await helpers.get_inventory(session, user.id)
-            if it is None or inv.get(it.key, 0) < 1:
+            have = inv.get(it.key, 0) if it else 0
+            if it is None or have < 1:
                 self.flash = "Você não tem mais esse item."
-                self.goto("mochila")
-                return await self.show(interaction)
+                return
             poke = await helpers.get_pokemon_by_idx(session, user.id, idx)
             if poke is None:
                 self.flash = "Pokémon não é seu."
-                self.goto("mochila")
-                return await self.show(interaction)
+                return
             sp = POKEDEX.get(poke.species_id)
             if it.category == "stone":
                 step = sp.can_evolve_by_stone(it.stone)
@@ -1308,27 +1323,35 @@ class HubView(discord.ui.View):
                     await helpers.take_item(session, user.id, it.key, 1)
                     bump_quest(user, "evolve", 1)
                     self.flash = f"✨ {sp.name} evoluiu para **{new.name}** com {it.name}!"
-            elif it.category == "booster":
-                await helpers.take_item(session, user.id, it.key, 1)
-                if it.iv_boost:
-                    before = poke.iv_percent
-                    for attr in ("iv_hp", "iv_atk", "iv_def", "iv_spa", "iv_spd", "iv_spe"):
-                        setattr(poke, attr, min(31, getattr(poke, attr) + it.iv_boost))
-                    self.flash = f"💠 IV de {sp.name}: {before:.1f}% → **{poke.iv_percent:.1f}%**"
-                elif it.level_amount:
-                    before = poke.level
-                    poke.level = min(100, poke.level + it.level_amount)
-                    self.flash = f"⬆️ {sp.name}: Nv {before} → **{poke.level}**"
-                elif it.xp_amount:
-                    nl, nx, g = apply_xp(poke.level, poke.xp, it.xp_amount)
-                    poke.level, poke.xp = nl, nx
-                    self.flash = f"⭐ {sp.name} +{it.xp_amount} XP" + (f" (subiu {g} nível(is)!)" if g else "")
-                else:
-                    self.flash = "Esse item não pode ser usado assim."
+                return
+            if it.category != "booster":
+                self.flash = "Esse item não pode ser usado assim."
+                return
+            n = max(1, min(qty, have))   # nunca usa mais do que tem
+            if it.level_amount:
+                falta = (100 - poke.level) // it.level_amount  # quantos ainda sobem nível
+                if falta <= 0:
+                    self.flash = f"{sp.name} já está no **nível máximo** (100)."
+                    return
+                n = min(n, falta)
+                before = poke.level
+                poke.level = min(100, poke.level + n * it.level_amount)
+                await helpers.take_item(session, user.id, it.key, n)
+                self.flash = f"⬆️ {sp.name}: Nv {before} → **{poke.level}** (usou {n}× {it.name})."
+            elif it.iv_boost:
+                before = poke.iv_percent
+                for attr in ("iv_hp", "iv_atk", "iv_def", "iv_spa", "iv_spd", "iv_spe"):
+                    setattr(poke, attr, min(31, getattr(poke, attr) + n * it.iv_boost))
+                await helpers.take_item(session, user.id, it.key, n)
+                self.flash = f"💠 IV de {sp.name}: {before:.1f}% → **{poke.iv_percent:.1f}%** (usou {n}× {it.name})."
+            elif it.xp_amount:
+                nl, nx, g = apply_xp(poke.level, poke.xp, n * it.xp_amount)
+                poke.level, poke.xp = nl, nx
+                await helpers.take_item(session, user.id, it.key, n)
+                self.flash = (f"⭐ {sp.name} +{n * it.xp_amount:,} XP"
+                              + (f" (subiu {g} nível(is)!)" if g else "") + f" (usou {n}× {it.name}).")
             else:
                 self.flash = "Esse item não pode ser usado assim."
-        self.goto("mochila")
-        await self.show(interaction)
 
     async def _do_buy(self, qty: int) -> None:
         """Efetiva a compra de `qty` do item atual e prepara o flash (sem render)."""
@@ -1550,6 +1573,23 @@ class BuyQtyModal(discord.ui.Modal, title="🛒 Comprar item"):
                 "Quantidade inválida (use só números, 1–1.000.000).", ephemeral=True)
             return
         await self._hub.buy_item_from_modal(interaction, int(raw))
+
+
+class UseQtyModal(discord.ui.Modal):
+    qtd = discord.ui.TextInput(label="Quantos usar?", placeholder="Ex.: 10",
+                               min_length=1, max_length=7)
+
+    def __init__(self, hub: "HubView", idx: int, item):
+        super().__init__(title=f"Usar {item.name}"[:45])
+        self._hub, self._idx = hub, idx
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = str(self.qtd.value).strip().replace(".", "").replace(",", "")
+        if not raw.isdigit() or not (1 <= int(raw) <= 1_000_000):
+            await interaction.response.send_message(
+                "Quantidade inválida (use só números, 1–1.000.000).", ephemeral=True)
+            return
+        await self._hub.use_item_qty_from_modal(interaction, self._idx, int(raw))
 
 
 class BallBtn(discord.ui.Button):
