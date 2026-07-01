@@ -89,6 +89,12 @@ class User(Base):
     badge_count: Mapped[int] = mapped_column(Integer, default=0)    # p/ ranking
     gym_cooldowns: Mapped[dict] = mapped_column(JSON, default=dict)  # revanche: key -> epoch
 
+    # Pesquisa de Campo (Caçada a lendários — substitui o "gacha" do explore)
+    research_points: Mapped[int] = mapped_column(Integer, default=0)   # progresso acumulado
+    research_day: Mapped[str | None] = mapped_column(String(10), default=None)  # YYYY-MM-DD do teto
+    research_today: Mapped[int] = mapped_column(Integer, default=0)    # RP já ganho hoje (teto diário)
+    hunts_won: Mapped[int] = mapped_column(Integer, default=0)         # lendários/míticos caçados
+
     language: Mapped[str | None] = mapped_column(String(4), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

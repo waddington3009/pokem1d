@@ -82,6 +82,8 @@ async def do_capture(
         helpers.grant_trainer_xp(user, settings.catch_xp)
         new_dex = await helpers.update_pokedex(session, user.id, species.id, seen=1, caught=1)
         bump_quest(user, "catch", 1)
+        from bot.utils.research import grant_rp
+        grant_rp(user, settings.rp_capture)   # RP de Pesquisa por capturar
         newly = check_achievements(user)
         user.coins += sum(a.reward_coins for a in newly)
         idx = poke.idx
@@ -374,8 +376,8 @@ class Explore(commands.Cog, name="Exploração"):
             await ctx.send(embed=emb, **({"file": file} if file else {}))
             return
 
-        # 3) encontro com pokémon
-        species = pick_spawn_species()
+        # 3) encontro com pokémon (sem lendário/mítico — esses vêm pela Caçada)
+        species = pick_spawn_species(exclude_rarities={"legendary", "mythical"})
         shiny = roll_shiny(settings.shiny_chance)
 
         # nível escala com o LÍDER do time (party[0] = o pokémon selecionado),

@@ -842,6 +842,9 @@ class Battle(commands.Cog, name="Batalha"):
                 user.battles_total += 1
                 helpers.grant_trainer_xp(user, 30)
                 bump_quest(user, "battle_win", 1)
+                if is_pve:
+                    from bot.utils.research import grant_rp
+                    grant_rp(user, settings.rp_battle_win)   # RP de Pesquisa por vitória
                 newly = check_achievements(user)
                 user.coins += sum(a.reward_coins for a in newly)
                 for mon in winner_team:

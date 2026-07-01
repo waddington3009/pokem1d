@@ -220,6 +220,7 @@ class HubView(discord.ui.View):
         s = self.screen
         if s == "home":
             self.add_item(NavBtn(self, "explorar", "Explorar", "🌿", discord.ButtonStyle.success, 0, action="explore"))
+            self.add_item(NavBtn(self, "pesquisa", "Pesquisa", "🔬", discord.ButtonStyle.success, 0))
             self.add_item(NavBtn(self, "home", "Duelar", "⚔️", discord.ButtonStyle.success, 0, action="duel"))
             self.add_item(NavBtn(self, "colecao", "Coleção", "📦", discord.ButtonStyle.primary, 0))
             self.add_item(NavBtn(self, "time", "Time", "👥", discord.ButtonStyle.primary, 0))
@@ -278,6 +279,12 @@ class HubView(discord.ui.View):
             self.add_item(HomeBtn(self, 1))
         elif s == "pokedex_detail":
             self.add_item(NavBtn(self, "pokedex", "Voltar", "◀️", discord.ButtonStyle.secondary, 0))
+        elif s == "pesquisa":
+            if getattr(self, "_hunt_ready", False):
+                self.add_item(HuntBtn(self, "legendary", "Iniciar Caçada", "⚔️"))
+            if getattr(self, "_mythic_ready", False):
+                self.add_item(HuntBtn(self, "mythical", "Caçada Mítica", "🌈"))
+            self.add_item(HomeBtn(self, 1))
         elif s == "detalhe":
             self.add_item(ActionBtn(self, "fav", "Favoritar", "❤️", discord.ButtonStyle.secondary, 0))
             self.add_item(ActionBtn(self, "lead", "Tornar líder", "⭐", discord.ButtonStyle.primary, 0))
@@ -360,7 +367,10 @@ class HubView(discord.ui.View):
             sel_id = sel.species_id if sel else 25
             sel_shiny = sel.shiny if sel else False
             tlevel = user.trainer_level
+            from bot.utils.research import progress as _research_progress
+            r_pts, r_cost, r_frac = _research_progress(user)
         dex_total = POKEDEX.count()
+        r_pct = int(r_frac * 100)
         # mantém o cargo de TÍTULO do jogador em dia com o nível (cria/atribui se preciso)
         member = self.ctx.guild.get_member(self.author_id) if self.ctx.guild else None
         if member is not None:
@@ -374,9 +384,10 @@ class HubView(discord.ui.View):
         buf = await render_home_card(
             coins=coins, slots=slots, leader=lider, leader_id=sel_id, leader_shiny=sel_shiny,
             collection=total, dex=dex, dex_total=dex_total, badges=badges)
+        pesq = f"🔬 Pesquisa: **{r_pct}%** ({r_pts:,}/{r_cost:,})" + (" — ⚔️ **Caçada pronta!**" if r_pct >= 100 else "")
         if buf is not None:
             emb = discord.Embed(color=settings.color_default,
-                                description="Escolha uma opção. 👇")
+                                description=f"{pesq}\nEscolha uma opção. 👇")
             emb.set_image(url="attachment://home.png")
             return emb, discord.File(buf, filename="home.png")
         emb = discord.Embed(
@@ -384,7 +395,7 @@ class HubView(discord.ui.View):
             description=(f"💰 **{coins:,}** PokéCoins\n"
                         f"🎒 Time **{slots} slots**  ·  ⭐ Líder: **{lider}**\n"
                         f"📦 Coleção: **{total}**  ·  📕 Pokédex: **{dex}/{dex_total}**\n"
-                        f"🏅 Insígnias: **{badges}**\n\nEscolha uma opção. 👇"),
+                        f"🏅 Insígnias: **{badges}**  ·  {pesq}\n\nEscolha uma opção. 👇"),
             color=settings.color_default)
         emb.set_thumbnail(url=settings.sprite_animated(sel_id))
         return emb, None
@@ -602,6 +613,99 @@ class HubView(discord.ui.View):
         emb.add_field(name="⚔️ Golpes",
                       value=", ".join(m.replace("-", " ").title() for m in sp.moves) or "—", inline=False)
         return emb, None
+
+    async def _s_pesquisa(self):
+        from bot.utils.research import (progress, mythic_cost, mythic_unlocked, rp_remaining_today)
+        from bot.utils.research_scene import render_research_card
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            pts, cost, frac = progress(user)
+            remaining = rp_remaining_today(user)
+            myth_ok = mythic_unlocked(user)
+            myth_pts, myth_cost, hunts = (user.research_points or 0), mythic_cost(), (user.hunts_won or 0)
+        self._hunt_ready = pts >= cost
+        self._mythic_ready = myth_ok and myth_pts >= myth_cost
+        emb = discord.Embed(title="🔬 Pesquisa de Campo", color=settings.color_default)
+        buf = await render_research_card(pts, cost, frac, self._hunt_ready)
+        file = discord.File(buf, filename="research.png") if buf else None
+        if file:
+            emb.set_image(url="attachment://research.png")
+        linhas = [
+            f"🔎 Explorar **+{settings.rp_explore}** · 🎯 Capturar **+{settings.rp_capture}** · "
+            f"⚔️ Vencer **+{settings.rp_battle_win}** · 📋 Missão **+{settings.rp_quest}**",
+            f"📅 Hoje ainda rende **{remaining}** de pesquisa (teto diário anti-farm).",
+            f"🏆 Caçadas concluídas: **{hunts}**",
+        ]
+        if self._hunt_ready:
+            linhas.append("⚔️ **Caçada Lendária liberada!** Vença o lendário para capturá-lo.")
+        if myth_ok:
+            estado = " — **pronta!**" if self._mythic_ready else ""
+            linhas.append(f"🌈 Caçada Mítica: **{myth_pts:,}/{myth_cost:,}**{estado}")
+        emb.description = "\n".join(linhas)
+        emb.set_footer(text="Lendários/míticos vêm só pela Caçada (o explore não sorteia mais).")
+        return emb, file
+
+    async def do_hunt(self, interaction, kind: str):
+        from bot.utils.research import hunt_cost, mythic_cost
+        from bot.utils.rarity import pick_species_of_rarity
+        from bot.cogs.battle import BattleView, build_wild_mon
+        battle_cog = self.ctx.bot.get_cog("Batalha")
+        if battle_cog is None:
+            self.flash = "Batalha indisponível."
+            self.goto("pesquisa")
+            return await self.show(interaction)
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            cost = mythic_cost() if kind == "mythical" else hunt_cost(user)
+            if (user.research_points or 0) < cost:
+                self.flash = "Você ainda não tem pontos suficientes para essa Caçada."
+                self.goto("pesquisa")
+                return await self.show(interaction)
+        species = pick_species_of_rarity({"mythical"} if kind == "mythical" else {"legendary"})
+        if species is None:
+            self.flash = "Nenhum alvo disponível para a Caçada."
+            self.goto("pesquisa")
+            return await self.show(interaction)
+        p1_team, err = await battle_cog.load_team(self.ctx, self.ctx.author)
+        if not p1_team:
+            self.flash = f"⚠️ {err}"
+            self.goto("pesquisa")
+            return await self.show(interaction)
+        target_level = min(100, max(p1_team[0].level + 5, 50))
+        leg = build_wild_mon(species, target_level, name=species.name, perfect_iv=True)
+        pid = self.author_id
+
+        async def on_finish(winner, loser):
+            if winner.owner_id == pid:
+                await self._grant_hunt(species, target_level, cost)
+
+        self.handed_off = True
+        bview = BattleView(battle_cog, self.ctx, p1_team, [leg], pid, None,
+                           on_finish=on_finish, opponent_name=species.name,
+                           end_view=PostBattleView(self, "pesquisa"))
+        bview.message = self.message
+        await bview.start_hosted(interaction)
+
+    async def _grant_hunt(self, species, level, cost):
+        """Ao VENCER a Caçada: cobra o RP, conta a caçada e captura o lendário."""
+        from bot.cogs.explore import do_capture
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            if (user.research_points or 0) < cost:
+                self.flash = "Pontos insuficientes — a Caçada foi cancelada."
+                return
+            user.research_points -= cost
+            user.hunts_won = (user.hunts_won or 0) + 1
+        idx, coins, new_dex, newly, iv_pct = await do_capture(
+            self.ctx.bot, self.author_id, species, level, False, iv_rolls=4, iv_floor=25)
+        extra = f"IV {iv_pct:.1f}% · +{coins}🪙 · #{idx}"
+        if new_dex:
+            extra += "\n📕 Novo registro na Pokédex!"
+        self.flash = f"🎉 Você caçou e capturou **{species.name}**!\n{extra}"
+        try:
+            await self.ctx.bot.announce_rare(self.ctx.guild, self.ctx.author, species, False, level)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def _s_detalhe(self):
         async with session_scope() as session:
@@ -933,12 +1037,18 @@ class HubView(discord.ui.View):
             return await self.show(interaction)
         self.last_explore = now
         self.goto("explorar")
+        # RP de Pesquisa por explorar (respeita o teto diário)
+        from bot.utils.research import grant_rp
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            rp = grant_rp(user, settings.rp_explore)
+        rp_txt = f"\n🔬 +{rp} pesquisa" if rp else ""
         from bot.cogs.explore import LOCATIONS
         location = random.choice(LOCATIONS)
         roll = random.random()
         if roll < settings.explore_nothing_chance:
             self.encounter = None
-            self.result = ("nothing", f"📍 *{location}*\nNada por aqui... tente de novo.")
+            self.result = ("nothing", f"📍 *{location}*\nNada por aqui... tente de novo.{rp_txt}")
             return await self.show(interaction)
         if roll < settings.explore_nothing_chance + settings.explore_coins_chance:
             coins = random.randint(settings.explore_coins_min, settings.explore_coins_max)
@@ -946,10 +1056,10 @@ class HubView(discord.ui.View):
                 user = await helpers.fetch_user(session, self.author_id)
                 user.coins += coins
             self.encounter = None
-            self.result = ("coins", f"📍 *{location}*\nVocê achou **{coins} PokéCoins**! 💰")
+            self.result = ("coins", f"📍 *{location}*\nVocê achou **{coins} PokéCoins**! 💰{rp_txt}")
             return await self.show(interaction)
-        # encontro
-        species = pick_spawn_species()
+        # encontro (explore NÃO sorteia lendário/mítico — eles vêm pela Caçada)
+        species = pick_spawn_species(exclude_rarities={"legendary", "mythical"})
         shiny = roll_shiny(settings.shiny_chance)
         from bot.cogs.explore import roll_encounter_level
         async with session_scope() as session:
@@ -977,11 +1087,13 @@ class HubView(discord.ui.View):
                 if action == "daily":
                     _, self.flash = _claim_daily(user)
                 else:
+                    from bot.utils.research import grant_rp
                     ganhos = []
                     for q, cur, done, claimed in quest_state(user):
                         if done and not claimed and (c := claim_quest(user, q.key)):
                             user.coins += c.reward_coins
                             helpers.grant_trainer_xp(user, c.reward_xp)
+                            grant_rp(user, settings.rp_quest)   # RP de Pesquisa por missão
                             ganhos.append(c)
                     self.flash = (f"🎉 +{sum(q.reward_coins for q in ganhos):,}🪙 e "
                                   f"+{sum(q.reward_xp for q in ganhos)} XP!" if ganhos
@@ -1549,6 +1661,15 @@ class EvoBtn(discord.ui.Button):
         await self._hub.evolve_to(interaction, self._to)
 
 
+class HuntBtn(discord.ui.Button):
+    def __init__(self, view, kind, label, emoji):
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.success, row=0)
+        self._hub, self._kind = view, kind
+
+    async def callback(self, interaction):
+        await self._hub.do_hunt(interaction, self._kind)
+
+
 class BuyQtyBtn(discord.ui.Button):
     def __init__(self, view):
         super().__init__(label="Comprar", emoji="🛒", style=discord.ButtonStyle.success, row=0)
@@ -1674,6 +1795,7 @@ class PostBattleView(discord.ui.View):
             "duel": ("duel_again", "Duelar de novo", "⚔️"),
             "explore": ("explore_again", "Explorar de novo", "🌿"),
             "liga": ("liga", "Ver Liga", "🏆"),
+            "pesquisa": ("pesquisa", "Ver Pesquisa", "🔬"),
         }.get(mode, ("menu", "Menu", "🏠"))
         self.add_item(PostBtn(hub, again[0], again[1], again[2], discord.ButtonStyle.success))
         self.add_item(PostBtn(hub, "menu", "Menu", "🏠", discord.ButtonStyle.secondary))
@@ -1712,6 +1834,9 @@ class PostBtn(discord.ui.Button):
             await fresh.do_explore(interaction)
         elif self._action == "liga":
             fresh.goto("liga")
+            await fresh.show(interaction)
+        elif self._action == "pesquisa":
+            fresh.goto("pesquisa")
             await fresh.show(interaction)
         else:  # menu
             fresh.goto("home")

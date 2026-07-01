@@ -54,6 +54,17 @@ class Settings:
     explore_coins_min: int = 30
     explore_coins_max: int = 140
 
+    # Pesquisa de Campo / Caçada (substitui o "gacha" de lendários no explore)
+    research_daily_cap: int = 80       # teto de RP que dá pra ganhar por dia
+    rp_explore: int = 3                # RP por exploração
+    rp_capture: int = 6                # RP por captura
+    rp_battle_win: int = 10            # RP por vitória em batalha (PvE)
+    rp_quest: int = 20                 # RP por missão diária resgatada
+    hunt_base_cost: int = 900          # custo (RP) da 1ª Caçada Lendária (~2sem casual / ~1,5 hardcore)
+    hunt_cost_step: int = 200          # +custo a cada caçada já feita
+    mythic_hunt_cost: int = 2500       # custo da Caçada Mítica
+    mythic_unlock_hunts: int = 3       # nº de caçadas p/ liberar a Mítica
+
     # Loot (caixa que cai junto com os spawns)
     loot_chance: float = 0.18          # chance do spawn ser uma caixa de loot
     loot_coins_chance: float = 0.6     # no loot, chance de vir moedas (senão item)

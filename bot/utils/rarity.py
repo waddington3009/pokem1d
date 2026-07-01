@@ -50,11 +50,23 @@ def rarity_label(rarity: str) -> str:
     return RARITY_LABEL.get(rarity, rarity.title())
 
 
-def pick_spawn_species() -> Species:
-    """Escolhe uma espécie para spawnar, ponderada pela raridade."""
+def pick_spawn_species(exclude_rarities: set[str] | None = None) -> Species:
+    """Escolhe uma espécie para spawnar, ponderada pela raridade.
+
+    `exclude_rarities` remove tiers do sorteio (o explore usa isso p/ tirar
+    lendário/mítico — eles só vêm pela Caçada da Pesquisa; o spawn público mantém).
+    """
     species = POKEDEX.all()
+    if exclude_rarities:
+        species = [s for s in species if s.rarity not in exclude_rarities]
     weights = [RARITY_WEIGHTS.get(s.rarity, 1.0) for s in species]
     return random.choices(species, weights=weights, k=1)[0]
+
+
+def pick_species_of_rarity(rarities: set[str]) -> Species | None:
+    """Escolhe uma espécie aleatória entre os tiers dados (p/ a Caçada)."""
+    pool = [s for s in POKEDEX.all() if s.rarity in rarities]
+    return random.choice(pool) if pool else None
 
 
 def roll_shiny(denominator: int, bonus: float = 1.0) -> bool:
