@@ -615,12 +615,14 @@ class HubView(discord.ui.View):
         return emb, None
 
     async def _s_pesquisa(self):
-        from bot.utils.research import (progress, mythic_cost, mythic_unlocked, rp_remaining_today)
+        from bot.utils.research import (progress, mythic_cost, mythic_unlocked,
+                                        rp_reduced_active, rp_until_reduced)
         from bot.utils.research_scene import render_research_card
         async with session_scope() as session:
             user = await helpers.fetch_user(session, self.author_id)
             pts, cost, frac = progress(user)
-            remaining = rp_remaining_today(user)
+            reduced = rp_reduced_active(user)
+            until_reduced = rp_until_reduced(user)
             myth_ok = mythic_unlocked(user)
             myth_pts, myth_cost, hunts = (user.research_points or 0), mythic_cost(), (user.hunts_won or 0)
         self._hunt_ready = pts >= cost
@@ -630,10 +632,17 @@ class HubView(discord.ui.View):
         file = discord.File(buf, filename="research.png") if buf else None
         if file:
             emb.set_image(url="attachment://research.png")
+        if reduced:
+            pct = int(settings.research_reduced_factor * 100)
+            linha_dia = (f"📅 Você já pesquisou bastante hoje — ganhos **reduzidos "
+                         f"(~{pct}%)**. Reseta amanhã.")
+        else:
+            linha_dia = (f"📅 Mais **{until_reduced}** de pesquisa a valor cheio hoje; "
+                         f"depois disso os ganhos caem.")
         linhas = [
             f"🔎 Explorar **+{settings.rp_explore}** · 🎯 Capturar **+{settings.rp_capture}** · "
             f"⚔️ Vencer **+{settings.rp_battle_win}** · 📋 Missão **+{settings.rp_quest}**",
-            f"📅 Hoje ainda rende **{remaining}** de pesquisa (teto diário anti-farm).",
+            linha_dia,
             f"🏆 Caçadas concluídas: **{hunts}**",
         ]
         if self._hunt_ready:

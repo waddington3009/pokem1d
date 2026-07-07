@@ -117,8 +117,12 @@ docs/                     # PLANOS futuros (não implementado): itens_batalha.md
 
 ### Explorar + Pesquisa de Campo + Caçada (sistema atual — SUBSTITUIU o "gacha")
 - **Explore NÃO sorteia mais lendário/mítico.** Só Comum→Super-Raro.
-- Cada ação dá **RP (pontos de pesquisa)** com **TETO DIÁRIO** (anti-farm):
-  Explorar +3, Capturar +6, Vencer PvE +10, Missão +20 (config).
+- Cada ação dá **RP (pontos de pesquisa)**: Explorar +3, Capturar +6, Vencer PvE +10,
+  Missão +20 (config).
+- **Sem teto rígido** (não trava mais o ganho no dia). Em vez disso há **RETORNO
+  DECRESCENTE**: até o **soft cap diário** (`research_soft_cap`, 80) rende cheio;
+  o RP que passar disso é multiplicado por `research_reduced_factor` (0.4 = 40%).
+  Reseta a cada dia (UTC) — ciclo diário. Lógica em `bot/utils/research.py::grant_rp`.
 - RP enche uma **barra** (tela 🔬 Pesquisa no /menu, imagem Pillow) + % na Home.
 - Barra cheia → **Caçada**: batalha contra o lendário (forte, IV perfeito); ao
   **VENCER**, captura. Perder não gasta RP. Custo escala por caçada; **Caçada Mítica**
@@ -184,8 +188,8 @@ no deploy.** ⚠️ Colunas novas ficam **NULL** para linhas existentes → semp
 
 ## 7. Config (config.py) — constantes tunáveis
 Tudo de balanceamento está em `Settings`: spawn (mensagens/cooldown/despawn), captura
-(shiny_chance, coins), explore (cooldown, chances), **Pesquisa** (`research_daily_cap`,
-`rp_explore/capture/battle_win/quest`, `hunt_base_cost`, `hunt_cost_step`,
+(shiny_chance, coins), explore (cooldown, chances), **Pesquisa** (`research_soft_cap`,
+`research_reduced_factor`, `rp_explore/capture/battle_win/quest`, `hunt_base_cost`, `hunt_cost_step`,
 `mythic_hunt_cost`, `mythic_unlock_hunts`), loot, economia/daily. Ajustar aqui e
 pushar.
 

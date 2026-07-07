@@ -91,8 +91,8 @@ class User(Base):
 
     # Pesquisa de Campo (Caçada a lendários — substitui o "gacha" do explore)
     research_points: Mapped[int] = mapped_column(Integer, default=0)   # progresso acumulado
-    research_day: Mapped[str | None] = mapped_column(String(10), default=None)  # YYYY-MM-DD do teto
-    research_today: Mapped[int] = mapped_column(Integer, default=0)    # RP já ganho hoje (teto diário)
+    research_day: Mapped[str | None] = mapped_column(String(10), default=None)  # YYYY-MM-DD do dia atual
+    research_today: Mapped[int] = mapped_column(Integer, default=0)    # RP já ganho hoje (soft cap / retorno decrescente)
     hunts_won: Mapped[int] = mapped_column(Integer, default=0)         # lendários/míticos caçados
 
     language: Mapped[str | None] = mapped_column(String(4), default=None)

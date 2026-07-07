@@ -55,7 +55,9 @@ class Settings:
     explore_coins_max: int = 140
 
     # Pesquisa de Campo / Caçada (substitui o "gacha" de lendários no explore)
-    research_daily_cap: int = 80       # teto de RP que dá pra ganhar por dia
+    # Sem teto rígido: até o soft cap rende cheio; depois, ganhos reduzidos (reseta por dia).
+    research_soft_cap: int = 80         # RP no dia a partir do qual os ganhos ficam reduzidos (0 = desliga)
+    research_reduced_factor: float = 0.4  # multiplicador dos ganhos após o soft cap (ex.: 0.4 = 40%)
     rp_explore: int = 3                # RP por exploração
     rp_capture: int = 6                # RP por captura
     rp_battle_win: int = 10            # RP por vitória em batalha (PvE)
