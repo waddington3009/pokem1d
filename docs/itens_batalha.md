@@ -24,11 +24,11 @@
 ## 1) Itens de cura de HP  (categoria `medicine`)
 | key | nome | efeito | preço sugerido |
 |---|---|---|---|
-| `potion` | Poção | +20 HP | 200 |
-| `super-potion` | Super Poção | +60 HP | 700 |
-| `hyper-potion` | Hyper Poção | +120 HP | 1.500 |
-| `max-potion` | Poção Máxima | HP total | 2.800 |
-| `full-restore` | Restaurador Total | HP total **+ cura status** | 4.000 |
+| `potion` | Poção | +20 HP | 2000 |
+| `super-potion` | Super Poção | +60 HP | 5000 |
+| `hyper-potion` | Hyper Poção | +120 HP | 15.500 |
+| `max-potion` | Poção Máxima | HP total | 20.800 |
+| `full-restore` | Restaurador Total | HP total **+ cura status** | 40.000 |
 
 ## 2) Cura de status  (categoria `medicine`)
 | key | nome | efeito |
@@ -95,9 +95,16 @@ Set inicial sugerido (ícones; o resto segue o mesmo padrão conforme adicionamo
 
 ## Decisões a confirmar antes de implementar
 1. **Itens valem em PvP** também, ou só PvE (selvagem/ginásio/duelo)?
+Valem em PvP
 2. **Usar item gasta o turno?** (recomendado: sim, como nos jogos)
+Não gasta o turno
 3. **Quantas Megas no lançamento** (set inicial vs. todas as ~48)?
+Todos os Megas
 4. **X-items entram?** (precisão/evasão ficam de fora por falta de estágio no motor)
+Sim
 5. **Onde comprar / preços** (PokéMart já existente).
+No PokeMart
 6. **Como segurar item**: tela no `/menu` (detalhe) com "Segurar item / Remover".
+Confirmado
 7. **Reviver em batalha** mexe em pokémon desmaiado do time — confirmar se entra já.
+Não entra já e pode se eu determinei algum preço para esse item pode ignorar e colocar um preço bem mais caro.

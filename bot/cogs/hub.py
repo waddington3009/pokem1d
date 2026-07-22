@@ -18,8 +18,8 @@ from discord.ext import commands
 from sqlalchemy import func, select
 
 from config import settings
-from bot.data.gyms import CHALLENGES, CHALLENGES_BY_KEY, challenge_index, party_slots
-from bot.data.items import ITEMS, SHOP_ORDER, find_item, get_item
+from bot.data.gyms import CHALLENGES, CHALLENGES_BY_KEY, challenge_index, leader_mons, party_slots
+from bot.data.items import ITEMS, SHOP_CATEGORIES, SHOP_ORDER, find_item, get_item
 from bot.data.pokemon_data import POKEDEX
 from bot.database.db import session_scope
 from bot.database.models import MarketListing, PokedexEntry, Pokemon, User
@@ -149,6 +149,7 @@ class HubView(discord.ui.View):
         # estado de telas específicas
         self.detail_idx: int | None = None
         self.shop_key: str | None = None
+        self.shop_cat: str | None = None            # filtro de categoria da loja
         self.market_id: int | None = None
         self.use_item_key: str | None = None       # item escolhido na mochila
         self.rank_type: str = "caught"             # categoria do ranking
@@ -290,7 +291,13 @@ class HubView(discord.ui.View):
             self.add_item(ActionBtn(self, "lead", "Tornar líder", "⭐", discord.ButtonStyle.primary, 0))
             self.add_item(ActionBtn(self, "evolve", "Evoluir", "🧬", discord.ButtonStyle.success, 0))
             self.add_item(ActionBtn(self, "release", "Soltar", "🔁", discord.ButtonStyle.danger, 0))
+            self.add_item(NavBtn(self, "held", "Segurar", "✋", discord.ButtonStyle.secondary, 1))
             self.add_item(NavBtn(self, "colecao", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
+        elif s == "held":
+            if self._opts:
+                self.add_item(ChoiceSelect(self, "hold", "Segurar uma Mega Stone...", self._opts, row=0))
+            self.add_item(ActionBtn(self, "unhold", "Remover", "🗑️", discord.ButtonStyle.danger, 1))
+            self.add_item(NavBtn(self, "detalhe", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
         elif s == "evolve_choice":
             for i, opt in enumerate(self._opts[:20]):
                 self.add_item(EvoBtn(self, int(opt.value), opt.label, row=i // 5))
@@ -305,6 +312,11 @@ class HubView(discord.ui.View):
             self.add_item(PageBtn(self, -1, "◀️", 1))
             self.add_item(PageBtn(self, +1, "▶️", 1))
             self.add_item(HomeBtn(self, 1))
+            # filtros de categoria (row 2 e 3): Tudo + as 6 categorias
+            self.add_item(ShopCatBtn(self, None, "Tudo", "🛒", 2))
+            for i, (ckey, clabel, _cats) in enumerate(SHOP_CATEGORIES):
+                self.add_item(ShopCatBtn(self, ckey, clabel.split(" ", 1)[-1],
+                                         clabel.split(" ", 1)[0], 2 if i < 4 else 3))
         elif s == "loja_buy":
             self.add_item(BuyQtyBtn(self))
             self.add_item(NavBtn(self, "loja", "Voltar", "◀️", discord.ButtonStyle.secondary, 1))
@@ -726,9 +738,45 @@ class HubView(discord.ui.View):
             sp = POKEDEX.get(poke.species_id)
             inv = await helpers.get_inventory(session, user.id)
             evo_title, evo_text = _evo_info(sp, poke.level, inv)
+            held = poke.held_item
             # cartão completo (atributos, IVs, natureza, golpes) reaproveitando o info_embed
             emb = embeds.info_embed(sp, poke)
             emb.add_field(name=evo_title, value=evo_text, inline=False)
+            if held:
+                hi = get_item(held)
+                emb.add_field(name="✋ Segurando",
+                              value=f"{hi.emoji} {hi.name}" if hi else held, inline=False)
+        return emb, None
+
+    async def _s_held(self):
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            poke = await helpers.get_pokemon_by_idx(session, user.id, self.detail_idx)
+            if poke is None:
+                self.goto("colecao")
+                return await self._s_colecao()
+            sp = POKEDEX.get(poke.species_id)
+            inv = await helpers.get_inventory(session, user.id)
+            held = poke.held_item
+        self._opts = []
+        for key, qty in sorted(inv.items()):
+            it = get_item(key)
+            if it is not None and it.holdable and qty > 0:
+                self._opts.append(discord.SelectOption(
+                    label=f"{it.name} ×{qty}"[:100], description=it.description[:100],
+                    value=it.key, emoji=it.emoji))
+        linhas = [f"**{sp.name}** #{self.detail_idx}"]
+        if held:
+            hi = get_item(held)
+            linhas.append(f"✋ Segurando: {hi.emoji if hi else ''} **{hi.name if hi else held}**")
+        else:
+            linhas.append("✋ Não está segurando nada.")
+        linhas.append("\nEscolha uma **Mega Stone** para segurar — permite **Mega Evoluir** "
+                      "durante a batalha (1x por luta).")
+        if not self._opts:
+            linhas.append("\n*Você não tem Mega Stones. Compre no 🛒 PokéMart (categoria 🧬 Mega).*")
+        emb = discord.Embed(title="✋ Segurar item", description="\n".join(linhas),
+                            color=settings.color_info)
         return emb, None
 
     async def _s_evolve_choice(self):
@@ -772,7 +820,16 @@ class HubView(discord.ui.View):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, self.author_id)
             coins = user.coins
-        itens = [ITEMS[k] for k in SHOP_ORDER if ITEMS[k].price > 0]
+        # filtro por categoria (evita a enxurrada de Mega Stones numa lista só)
+        cat_set = None
+        cat_label = "Tudo"
+        if self.shop_cat:
+            for ckey, clabel, cats in SHOP_CATEGORIES:
+                if ckey == self.shop_cat:
+                    cat_set, cat_label = cats, clabel
+                    break
+        itens = [ITEMS[k] for k in SHOP_ORDER
+                 if ITEMS[k].price > 0 and (cat_set is None or ITEMS[k].category in cat_set)]
         pages = max(1, (len(itens) + PER_PAGE_SHOP - 1) // PER_PAGE_SHOP)
         self.page %= pages
         sl = itens[self.page * PER_PAGE_SHOP:(self.page + 1) * PER_PAGE_SHOP]
@@ -780,9 +837,9 @@ class HubView(discord.ui.View):
                                            description=it.description[:100], value=it.key, emoji=it.emoji)
                       for it in sl]
         linhas = [f"{it.emoji} **{it.name}** — `{it.price:,}` 🪙\n   ↳ {it.description}" for it in sl]
-        emb = discord.Embed(title=f"🛒 PokéMart — pág {self.page + 1}/{pages}",
+        emb = discord.Embed(title=f"🛒 PokéMart · {cat_label} — pág {self.page + 1}/{pages}",
                             description="\n".join(linhas), color=settings.color_info)
-        emb.set_footer(text=f"Saldo: {coins:,} 🪙 • escolha no menu para comprar")
+        emb.set_footer(text=f"Saldo: {coins:,} 🪙 • filtre por categoria nos botões abaixo")
         return emb, None
 
     async def _s_loja_buy(self):
@@ -887,7 +944,9 @@ class HubView(discord.ui.View):
                 self._opts.append(discord.SelectOption(
                     label=f"{it.name} ×{qty}"[:100], description=it.description[:100],
                     value=it.key, emoji=it.emoji))
-        labels = {"ball": "🎯 Pokébolas", "stone": "💎 Pedras", "lure": "🪔 Incensos",
+        labels = {"ball": "🎯 Pokébolas", "medicine": "💊 Curas (batalha)",
+                  "battle": "⚔️ Itens de batalha", "stone": "💎 Pedras",
+                  "mega-stone": "🧬 Mega Stones", "lure": "🪔 Incensos",
                   "booster": "📈 Boosters", "misc": "📦 Outros"}
         emb = discord.Embed(title="🎒 Mochila", color=settings.color_info)
         if not grouped:
@@ -896,7 +955,8 @@ class HubView(discord.ui.View):
         for cat, label in labels.items():
             if cat in grouped:
                 emb.add_field(name=label, value="\n".join(grouped[cat]), inline=False)
-        emb.set_footer(text="Escolha um item no menu para usar.")
+        emb.set_footer(text="Pedras/boosters: escolha no menu. Curas/X-items: use na 🎒 da batalha. "
+                            "Mega Stones: segure via Coleção → detalhe → ✋ Segurar.")
         return emb, None
 
     async def _s_use_target(self):
@@ -1121,6 +1181,10 @@ class HubView(discord.ui.View):
         if action == "market_yes":
             return await self._market_buy(interaction)
 
+        # --- item segurado (held item) ---
+        if action == "unhold":
+            return await self.remove_held(interaction)
+
     async def _detail_action(self, interaction, action):
         async with session_scope() as session:
             user = await helpers.fetch_user(session, self.author_id)
@@ -1194,6 +1258,50 @@ class HubView(discord.ui.View):
         bump_quest(user, "evolve", 1)
         extra = f" usando {sit.name}" if sit else ""
         self.flash = f"✨ {before} evoluiu para **{new.name}**{extra}!"
+
+    async def hold_item(self, interaction, key: str):
+        """Faz o pokémon do detalhe segurar uma Mega Stone (devolve a anterior à mochila)."""
+        it = get_item(key)
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            poke = await helpers.get_pokemon_by_idx(session, user.id, self.detail_idx)
+            if poke is None:
+                self.flash = "Pokémon não encontrado."
+                self.goto("colecao")
+                return await self.show(interaction)
+            sp = POKEDEX.get(poke.species_id)
+            inv = await helpers.get_inventory(session, user.id)
+            if it is None or not it.holdable:
+                self.flash = "Esse item não pode ser segurado."
+            elif inv.get(it.key, 0) < 1:
+                self.flash = "Você não tem esse item."
+            else:
+                if poke.held_item:                       # devolve o anterior à mochila
+                    await helpers.add_item(session, user.id, poke.held_item, 1)
+                await helpers.take_item(session, user.id, it.key, 1)
+                poke.held_item = it.key
+                self.flash = f"✋ **{sp.name}** agora segura {it.emoji} **{it.name}**."
+        self.goto("held")
+        await self.show(interaction)
+
+    async def remove_held(self, interaction):
+        """Remove o item segurado do pokémon do detalhe (devolve à mochila)."""
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, self.author_id)
+            poke = await helpers.get_pokemon_by_idx(session, user.id, self.detail_idx)
+            if poke is None:
+                self.flash = "Pokémon não encontrado."
+                self.goto("colecao")
+                return await self.show(interaction)
+            if poke.held_item:
+                hi = get_item(poke.held_item)
+                await helpers.add_item(session, user.id, poke.held_item, 1)
+                poke.held_item = None
+                self.flash = f"🗑️ Removido {hi.name if hi else ''} (devolvido à mochila)."
+            else:
+                self.flash = "Não estava segurando nada."
+        self.goto("held")
+        await self.show(interaction)
 
     async def evolve_to(self, interaction, target_to):
         async with session_scope() as session:
@@ -1285,8 +1393,9 @@ class HubView(discord.ui.View):
             self.flash = f"⚠️ {err}"
             self.goto("liga")
             return await self.show(interaction)
-        leader_team = [build_wild_mon(POKEDEX.by_name(n), lv, name=n, perfect_iv=ch.perfect)
-                       for n, lv in ch.team]
+        leader_team = [build_wild_mon(POKEDEX.by_name(n), lv, name=n,
+                                      perfect_iv=ch.perfect, held_item=h)
+                       for n, lv, h in leader_mons(ch)]
         already = ch.key in badges
         pid = self.author_id
 
@@ -1378,6 +1487,12 @@ class HubView(discord.ui.View):
     async def open_shop_item(self, interaction, key: str):
         self.shop_key = key
         self.goto("loja_buy")
+        await self.show(interaction)
+
+    async def set_shop_cat(self, interaction, cat: str | None):
+        self.shop_cat = cat
+        self.page = 0
+        self.goto("loja")
         await self.show(interaction)
 
     async def open_use_item(self, interaction, key: str):
@@ -1652,6 +1767,17 @@ class PageBtn(discord.ui.Button):
         await self._hub.show(interaction)
 
 
+class ShopCatBtn(discord.ui.Button):
+    def __init__(self, view, cat, label, emoji, row):
+        active = view.shop_cat == cat
+        super().__init__(label=label, emoji=emoji, row=row,
+                         style=discord.ButtonStyle.success if active else discord.ButtonStyle.secondary)
+        self._hub, self._cat = view, cat
+
+    async def callback(self, interaction):
+        await self._hub.set_shop_cat(interaction, self._cat)
+
+
 class ActionBtn(discord.ui.Button):
     def __init__(self, view, action, label, emoji, style, row):
         super().__init__(label=label, emoji=emoji, style=style, row=row)
@@ -1755,6 +1881,8 @@ class ChoiceSelect(discord.ui.Select):
             await self._hub.open_use_item(interaction, v)
         elif self._kind == "usetarget":
             await self._hub.use_item_on(interaction, int(v))
+        elif self._kind == "hold":
+            await self._hub.hold_item(interaction, v)
         elif self._kind == "dexview":
             await self._hub.open_dex_detail(interaction, int(v))
 

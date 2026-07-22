@@ -20,13 +20,17 @@ from bot.database.db import session_scope
 from bot.database.models import Pokemon
 from bot.game.battle_engine import (
     BattleMon,
+    apply_battle_item,
     apply_move,
     apply_rarity_bonus,
     build_battle_mon,
     can_act,
+    can_mega,
     effective_speed,
     end_of_turn,
+    mega_evolve,
 )
+from bot.data.items import get_item
 from bot.utils import embeds, helpers
 from bot.utils.battle_scene import render_battle_scene
 from bot.utils.confirm import Confirm
@@ -114,7 +118,8 @@ def pick_balanced_wild_species(lead_species: Species, band: int = 70) -> Species
 
 
 def build_wild_mon(species: Species, level: int, name: str | None = None,
-                   shiny: bool = False, perfect_iv: bool = False) -> BattleMon:
+                   shiny: bool = False, perfect_iv: bool = False,
+                   held_item: str | None = None) -> BattleMon:
     """Cria um BattleMon para um encontro selvagem (PvE/exploração)."""
     wild = make_wild(species, level, perfect=perfect_iv)
     stats = compute_all_stats(species, wild)
@@ -125,7 +130,7 @@ def build_wild_mon(species: Species, level: int, name: str | None = None,
         species=species, level=level, name=name or f"{species.name} selvagem",
         owner_id=None, pokemon_db_id=None, shiny=shiny,
         base_stats=stats, moves=(moves or [MOVES["tackle"]])[:4],
-        max_hp=mhp,
+        max_hp=mhp, held_item=held_item, stat_source=wild,
     )
 
 
@@ -176,10 +181,16 @@ class BattleView(discord.ui.View):
         self.p2_id = p2_id            # None => PvE
         self.is_pve = p2_id is None
         self.on_finish = on_finish
-        self.phase = "act_p1"         # act_p1/act_p2/sw_p1/sw_p2/fsw_p1/fsw_p2
+        self.phase = "act_p1"         # act_p1/act_p2/sw_p1/sw_p2/fsw_p1/fsw_p2/bag_p1/bag_p2
         self.action_p1: tuple | None = None   # ('move', Move) | ('switch', idx)
         self.action_p2: tuple | None = None
         self._pending_fsw: list[str] = []
+        # Mega Evolução: 1x por lado, por batalha
+        self.p1_mega_used = False
+        self.p2_mega_used = False
+        # itens usados no turno (mensagens que devem aparecer no próximo round)
+        self._pending_log: list[str] = []
+        self._bag_opts: list[discord.SelectOption] = []
         self.turn = 1
         self.log: list[str] = ["A batalha começou!"]
         self.message: discord.Message | None = None
@@ -222,11 +233,16 @@ class BattleView(discord.ui.View):
         if self.phase in ("act_p1", "act_p2"):
             side = self._phase_side()
             mon = self.p1 if side == "p1" else self.p2
+            mega_used = self.p1_mega_used if side == "p1" else self.p2_mega_used
             for mv in mon.moves:
                 self.add_item(MoveButton(mv, self, disabled=mon.pp.get(mv.key, 0) <= 0))
             team, active = self._team(side)
             if self._reserves(team, active):
                 self.add_item(TrocaButton(self))
+            # 🎒 Mochila (usar item NÃO gasta o turno) + ✨ Mega Evoluir (1x/batalha)
+            self.add_item(BagButton(self))
+            if can_mega(mon) and not mega_used:
+                self.add_item(MegaBattleButton(self))
             # PvE: "Recuar" (foge limpo). No explore, "Voltar" devolve à escolha do
             # encontro. PvP: "Desistir" (entrega a vitória).
             if self.is_pve:
@@ -234,6 +250,10 @@ class BattleView(discord.ui.View):
                               else FleeButton(self))
             else:
                 self.add_item(ForfeitButton(self))
+        elif self.phase.startswith("bag_"):
+            if self._bag_opts:
+                self.add_item(BagItemSelect(self))
+            self.add_item(BagBackButton(self))
         elif self.phase.startswith(("sw_", "fsw_")):
             forced = self.phase.startswith("fsw_")
             side = self._phase_side()
@@ -252,16 +272,17 @@ class BattleView(discord.ui.View):
             types = " ".join(TYPE_EMOJI.get(t, "") for t in mon.species.types)
             status = f" • {mon.status}" if mon.status else ""
             shiny = "✨" if mon.shiny else ""
+            mega = "⚡" if mon.is_mega else ""
             if scene:
                 # a imagem já mostra HP, nível e o time — aqui só o que falta nela
                 emb.add_field(
-                    name=f"{shiny}{mon.name} {types}",
-                    value=f"`{self._names[side]}`{status}",
+                    name=f"{mega}{shiny}{mon.name} {types}",
+                    value=f"`{self._names[side]}`{status}" + (f"\n✨ {mon.mega_label}" if mon.is_mega else ""),
                     inline=True,
                 )
             else:
                 emb.add_field(
-                    name=f"{shiny}{mon.name} {types}",
+                    name=f"{mega}{shiny}{mon.name} {types}",
                     value=(f"`{self._names[side]}`\n"
                            f"Nv {mon.level}{status}\n"
                            f"{hp_bar(mon.hp_fraction())}\n"
@@ -347,6 +368,7 @@ class BattleView(discord.ui.View):
         if side == "p1":
             self.action_p1 = action
             if self.is_pve:
+                self._maybe_ai_mega()
                 self.action_p2 = ("move", ai_choose_move(self.p2, self.p1))
                 await self._resolve(interaction)
             else:
@@ -370,6 +392,79 @@ class BattleView(discord.ui.View):
         self._build()
         await self._safe_edit(interaction)
 
+    # ---- 🎒 Mochila em batalha (usar item NÃO gasta o turno) ----
+    async def on_bag(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self._actor_id():
+            await interaction.response.send_message("Não é sua vez!", ephemeral=True)
+            return
+        side = self._phase_side()
+        uid = self.p1_id if side == "p1" else self.p2_id
+        if uid is None:
+            return
+        async with session_scope() as session:
+            user = await helpers.fetch_user(session, uid)
+            inv = await helpers.get_inventory(session, user.id)
+        opts: list[discord.SelectOption] = []
+        for key, qty in sorted(inv.items()):
+            it = get_item(key)
+            if it is not None and it.usable_in_battle and qty > 0:
+                opts.append(discord.SelectOption(
+                    label=f"{it.name} ×{qty}"[:100], description=it.description[:100],
+                    value=it.key, emoji=it.emoji))
+        if not opts:
+            await interaction.response.send_message(
+                "🎒 Você não tem itens usáveis em batalha. Compre curas/X-items no 🛒 PokéMart.",
+                ephemeral=True)
+            return
+        self._bag_opts = opts[:25]
+        self.phase = f"bag_{side}"
+        self._build()
+        await self._safe_edit(interaction)
+
+    async def on_bag_use(self, interaction: discord.Interaction, key: str) -> None:
+        if interaction.user.id != self._actor_id():
+            await interaction.response.send_message("Não é sua vez!", ephemeral=True)
+            return
+        side = self._phase_side()
+        uid = self.p1_id if side == "p1" else self.p2_id
+        mon = self.p1 if side == "p1" else self.p2
+        it = get_item(key)
+        if it is not None and it.usable_in_battle and uid is not None:
+            changed, ilog = apply_battle_item(mon, it)
+            if changed:
+                async with session_scope() as session:
+                    user = await helpers.fetch_user(session, uid)
+                    await helpers.take_item(session, user.id, it.key, 1)
+                self.log.append(f"🎒 {self._names[side]} usou {it.emoji} **{it.name}**! " + " ".join(ilog))
+            else:
+                self.log.append(f"🎒 {it.name} não teve efeito — não foi gasto.")
+        self.phase = f"act_{side}"
+        self._build()
+        await self._safe_edit(interaction)
+
+    async def on_bag_back(self, interaction: discord.Interaction) -> None:
+        self.phase = f"act_{self._phase_side()}"
+        self._build()
+        await self._safe_edit(interaction)
+
+    # ---- ✨ Mega Evolução (1x por lado; transforma só na batalha) ----
+    async def on_mega(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self._actor_id():
+            await interaction.response.send_message("Não é sua vez!", ephemeral=True)
+            return
+        side = self._phase_side()
+        mon = self.p1 if side == "p1" else self.p2
+        used = self.p1_mega_used if side == "p1" else self.p2_mega_used
+        if not used and can_mega(mon):
+            self.log.extend(mega_evolve(mon))
+            if side == "p1":
+                self.p1_mega_used = True
+            else:
+                self.p2_mega_used = True
+        self.phase = f"act_{side}"
+        self._build()
+        await self._safe_edit(interaction)
+
     async def on_switch_choice(self, interaction: discord.Interaction, idx: int) -> None:
         if interaction.user.id != self._actor_id():
             await interaction.response.send_message("Não é sua vez!", ephemeral=True)
@@ -379,6 +474,7 @@ class BattleView(discord.ui.View):
         if side == "p1":
             self.action_p1 = action
             if self.is_pve:
+                self._maybe_ai_mega()
                 self.action_p2 = ("move", ai_choose_move(self.p2, self.p1))
                 await self._resolve(interaction)
             else:
@@ -415,9 +511,17 @@ class BattleView(discord.ui.View):
         else:
             self.log.append(f"🔄 {self._names[side]} recolheu **{old}** e enviou **{new}**!")
 
+    def _maybe_ai_mega(self) -> None:
+        """PvE: se o oponente (IA) segura a Mega Stone certa, Mega Evolui antes de agir."""
+        if self.is_pve and not self.p2_mega_used and can_mega(self.p2):
+            self._pending_log.extend(mega_evolve(self.p2))
+            self.p2_mega_used = True
+
     def _apply_round(self) -> None:
         """Resolve um turno (trocas + ataques + status). Sem Discord — testável."""
-        log: list[str] = []
+        # mensagens pendentes (ex.: Mega da IA) entram no começo do log do round
+        log: list[str] = list(self._pending_log)
+        self._pending_log = []
         self.log = log  # _do_switch também grava aqui
         acts = {"p1": self.action_p1, "p2": self.action_p2}
 
@@ -661,6 +765,43 @@ class ForfeitButton(discord.ui.Button):
             return
         v.log.append(f"🏳️ {interaction.user.display_name} desistiu!")
         await v._end(interaction)
+
+
+class BagButton(discord.ui.Button):
+    def __init__(self, view: BattleView):
+        super().__init__(label="Mochila", emoji="🎒", style=discord.ButtonStyle.secondary, row=1)
+        self._bv = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._bv.on_bag(interaction)
+
+
+class BagItemSelect(discord.ui.Select):
+    def __init__(self, view: BattleView):
+        super().__init__(placeholder="Usar um item... (não gasta o turno)",
+                         options=view._bag_opts[:25], row=0)
+        self._bv = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._bv.on_bag_use(interaction, self.values[0])
+
+
+class BagBackButton(discord.ui.Button):
+    def __init__(self, view: BattleView):
+        super().__init__(label="Voltar", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+        self._bv = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._bv.on_bag_back(interaction)
+
+
+class MegaBattleButton(discord.ui.Button):
+    def __init__(self, view: BattleView):
+        super().__init__(label="Mega Evoluir", emoji="✨", style=discord.ButtonStyle.success, row=1)
+        self._bv = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._bv.on_mega(interaction)
 
 
 # ==========================================================================

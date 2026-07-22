@@ -133,9 +133,27 @@ docs/                     # PLANOS futuros (não implementado): itens_batalha.md
 ### Batalha
 - Motor em `game/battle_engine.py`: HP, PP, 5 status (queimadura/veneno/paralisia/
   sono/congelamento), **estágios de atributo** (-6..+6). Dano com STAB, tipo, crítico.
-- Botões: golpes, Trocar, Recuar/Voltar (no explore vira "Voltar" p/ a escolha do
-  encontro), Desistir (PvP).
+- Botões: golpes, Trocar, **🎒 Mochila**, **✨ Mega Evoluir**, Recuar/Voltar (no explore
+  vira "Voltar" p/ a escolha do encontro), Desistir (PvP).
 - PvP cria **arena privada temporária** (precisa Gerenciar Canais/Cargos; Admin cobre).
+
+### Itens de batalha + Mega Evolução (implementado — ver docs/itens_batalha.md)
+- **🎒 Mochila na batalha**: usa itens de `medicine` (Poções, curas de status, Éter/Elixir)
+  e `battle` (X-items = +1 estágio). **Usar NÃO gasta o turno** (o jogador ainda escolhe
+  golpe). Vale em PvE e PvP. Item sem efeito não é consumido. Lógica:
+  `battle_engine.apply_battle_item`. Reviver (revive/max-revive) existe na loja mas
+  **ainda não é usável em batalha** (preço alto).
+- **✨ Mega Evolução**: pokémon que **segura a Mega Stone certa** (held item) pode Mega
+  Evoluir **1x por batalha** — troca tipos/atributos/sprite; reverte no fim (nada é salvo).
+  Dados de ~49 formas (Megas + Primais Kyogre/Groudon + Rayquaza) em `bot/data/mega.py`
+  (indexado por `stone_key`; sprite pelo id de forma do PokéAPI). Recalcula stats via
+  `battle_engine.mega_evolve` usando os IVs/natureza do próprio pokémon. **Líderes da Liga
+  Suprema também Mega Evoluem** (IA, aces com pedra). Stone é **item segurável**
+  (`Item.mega_stone`), não consome em batalha.
+- **Segurar item**: `/menu → Coleção → detalhe → ✋ Segurar` (escolhe uma Mega Stone;
+  troca devolve a anterior à mochila). Campo `Pokemon.held_item` (já existia).
+- **Onde comprar**: 🛒 PokéMart, agora com **filtro por categoria** (Bolas/Curas/Batalha/
+  Pedras/Boosters/Mega) — evita a enxurrada de ~49 pedras numa lista só.
 
 ### Loja / Mochila / Market
 - **Loja:** comprar itens; **quantidade livre via modal** (digita quanto quer).
@@ -149,6 +167,23 @@ docs/                     # PLANOS futuros (não implementado): itens_batalha.md
   pedra que o jogador JÁ tem no inventário (consome a pedra). Eevee funciona certo.
 - **Sylveon (#700)** adicionado ao dataset; evolui do Eevee via item **🎀 Laço da
   Amizade** (`bond-ribbon`, comprável na Loja).
+
+### Liga Suprema (reformulada — muito mais difícil)
+- A liga ativa foi **refeita** (`bot/data/gyms.py` → `CHALLENGES`, chaves `s2_*`): 8 ginásios
+  + Elite dos 4 + Campeão + 3 covis lendários + Câmara Suprema, **todos com IVs perfeitos**,
+  times cheios (5-6), níveis altos (gym1 ~Nv40 → endgame Nv100) e **aces que Mega Evoluem**.
+  Muito mais difícil (~3x+). Recompensas escaladas e várias **Mega Stones como prêmio**.
+- **Insígnias antigas continuam válidas** para quem já as tem: a liga antiga virou
+  `LEGACY_CHALLENGES` (só exibe as insígnias no perfil, não é mais desafiável). As novas têm
+  nomes/emojis próprios. `CHALLENGES_BY_KEY` = ativa + legado (p/ exibição); `resolve_challenge`
+  e `challenge_index` usam só a ativa. `party_slots` conta ginásios das DUAS ligas (quem já
+  zerou a antiga mantém os 6 slots).
+- Time do líder aceita `(espécie, nível)` ou `(espécie, nível, mega_stone_key)` — ver
+  `leader_mons()`.
+
+### Preços do PokéMart
+- Preços **aumentados** (bolas, pedras, boosters, master ball, cristal de IV). Novos itens de
+  batalha e Mega Stones (50k cada) somam sinks de economia.
 
 ### Títulos por nível (cargos)
 - 15 cargos temáticos (bot/data/titles.py): 🥚 Novato de Pallet (nv1) → 🌌 Divindade
@@ -241,9 +276,9 @@ Gotchas técnicos:
 ---
 
 ## 11. Planos FUTUROS (em docs/, NÃO implementado)
-- **docs/itens_batalha.md** — itens de batalha (poções, curas, revives, X-items) +
-  **Mega Evolução real** (segurar Mega Stone, botão Mega Evoluir, reverter). O motor já
-  tem status/estágios/PP/held_item; falta a UI de Mochila na batalha e as formas Mega.
+- **docs/itens_batalha.md** — ✅ **IMPLEMENTADO** (itens de batalha + Mega Evolução; ver
+  seção 5). Falta só **reviver em batalha** (revive/max-revive existem na loja mas ainda
+  não têm uso na 🎒). O doc fica como registro do desenho.
 - **docs/explore_rework.md** — o plano da Pesquisa/Caçada (já IMPLEMENTADO; doc é o
   registro do desenho e decisões).
 - Ideia aberta: adicionar **gerações novas (6-9)** via script do PokeAPI (sprites

@@ -48,6 +48,10 @@ class BattleMon:
     stages: dict[str, int] = field(default_factory=lambda: {k: 0 for k in STAGE_KEYS})
     status: str | None = None     # burn | poison | paralyze | sleep | freeze
     sleep_turns: int = 0
+    held_item: str | None = None  # item segurado (ex.: mega-stone) — lido de pokemon.held_item
+    stat_source: object | None = None  # objeto com iv_*/nature/level p/ recalcular na Mega
+    is_mega: bool = False         # já Mega Evoluiu nesta batalha
+    mega_label: str | None = None  # nome da forma Mega (p/ exibição)
 
     def __post_init__(self) -> None:
         self.hp = self.max_hp
@@ -80,6 +84,7 @@ def build_battle_mon(
         species=species, level=pokemon.level, name=name,
         owner_id=owner_id, pokemon_db_id=pokemon.id, shiny=pokemon.shiny,
         base_stats=stats, moves=moves[:4], max_hp=mhp,
+        held_item=getattr(pokemon, "held_item", None), stat_source=pokemon,
     )
 
 
@@ -233,6 +238,108 @@ def effective_speed(mon: BattleMon) -> int:
     if mon.status == "paralyze":
         spe = spe // 2
     return spe
+
+
+# ---------------------------------------------------------------------------
+# Itens de batalha (🎒 Mochila) — usar NÃO gasta o turno
+# ---------------------------------------------------------------------------
+def apply_battle_item(mon: BattleMon, item) -> tuple[bool, list[str]]:
+    """Aplica um item de batalha ao pokémon ativo. Retorna (mudou_algo, log).
+
+    Só consome o item se `mudou_algo` for True (item que não faz efeito não é gasto).
+    """
+    log: list[str] = []
+    changed = False
+
+    # cura de HP
+    if item.heal and mon.alive:
+        before = mon.hp
+        mon.hp = mon.max_hp if item.heal < 0 else min(mon.max_hp, mon.hp + item.heal)
+        if mon.hp > before:
+            changed = True
+            log.append(f"🧪 **{item.name}**: {mon.name} recuperou **{mon.hp - before}** HP.")
+
+    # cura de status
+    if item.cures and mon.status is not None:
+        if "any" in item.cures or mon.status in item.cures:
+            cured = mon.status
+            mon.status = None
+            mon.sleep_turns = 0
+            changed = True
+            log.append(f"💊 **{item.name}**: {mon.name} se curou de *{_status_pt(cured)}*.")
+
+    # restaurar PP
+    if item.pp_restore:
+        if item.pp_all:
+            targets = list(mon.moves)
+        else:
+            # golpe com mais PP faltando (o mais gasto)
+            depleted = sorted(mon.moves, key=lambda mv: mon.pp.get(mv.key, 0) - mv.pp)
+            targets = depleted[:1]
+        touched = False
+        for mv in targets:
+            cur, mx = mon.pp.get(mv.key, 0), mv.pp
+            if cur < mx:
+                mon.pp[mv.key] = mx if item.pp_restore < 0 else min(mx, cur + item.pp_restore)
+                touched = True
+        if touched:
+            changed = True
+            alvo = "todos os golpes" if item.pp_all else "o golpe mais gasto"
+            log.append(f"🔵 **{item.name}**: PP de {alvo} restaurado ({mon.name}).")
+
+    # X-item (estágio de atributo)
+    if item.battle_stat and mon.alive:
+        key = item.battle_stat
+        cur = mon.stages.get(key, 0)
+        if cur < 6:
+            mon.stages[key] = min(6, cur + item.battle_stage)
+            changed = True
+            log.append(f"📊 **{item.name}**: {key.upper()} de {mon.name} aumentou!")
+
+    if not changed:
+        log.append(f"...mas não teve efeito.")
+    return changed, log
+
+
+# ---------------------------------------------------------------------------
+# Mega Evolução — transforma o ativo (1x/batalha); nada é salvo no banco
+# ---------------------------------------------------------------------------
+def can_mega(mon: BattleMon) -> bool:
+    """True se o ativo segura a Mega Stone certa e ainda não Mega Evoluiu."""
+    if mon.is_mega or not mon.held_item or mon.stat_source is None:
+        return False
+    from bot.data.mega import mega_for_stone
+    form = mega_for_stone(mon.held_item)
+    return form is not None and form.base_id == mon.species.id
+
+
+def mega_evolve(mon: BattleMon) -> list[str]:
+    """Aplica a Mega Evolução ao pokémon ativo. Retorna o log (vazio se não pôde)."""
+    if not can_mega(mon):
+        return []
+    from bot.data.mega import mega_for_stone
+    form = mega_for_stone(mon.held_item)
+    if form is None:
+        return []
+
+    rarity = mon.species.rarity
+    mega_sp = Species(
+        id=form.mega_id, name=form.mega_name, types=list(form.types),
+        base_stats=dict(form.base_stats), rarity=rarity,
+        legendary=mon.species.legendary, mythical=mon.species.mythical,
+    )
+    stats = compute_all_stats(mega_sp, mon.stat_source)
+    mhp = max_hp(mega_sp, mon.stat_source)
+    stats, mhp = apply_rarity_bonus(stats, mhp, rarity)
+
+    frac = mon.hp_fraction()
+    mon.species = mega_sp
+    mon.base_stats = stats
+    mon.max_hp = mhp
+    mon.hp = max(1, round(mhp * frac)) if frac > 0 else 0
+    mon.is_mega = True
+    mon.mega_label = form.mega_name
+    return [f"✨ **{mon.name}** Mega Evoluiu em **{form.mega_name}**!"]
 
 
 def resolve_turn(

@@ -11,6 +11,7 @@ from bot.data.gyms import (
     CHALLENGES,
     CHALLENGES_BY_KEY,
     challenge_index,
+    leader_mons,
     party_slots,
     resolve_challenge,
 )
@@ -137,13 +138,15 @@ class Gyms(commands.Cog, name="Liga"):
             await ctx.send(embed=embeds.err_embed(err))
             return
 
-        # monta o time do líder (PvE — IA)
+        # monta o time do líder (PvE — IA); aces podem segurar Mega Stone
         from bot.cogs.battle import build_wild_mon
-        leader_team = [build_wild_mon(POKEDEX.by_name(n), lv, name=n, perfect_iv=ch.perfect)
-                       for n, lv in ch.team]
+        leader_team = [build_wild_mon(POKEDEX.by_name(n), lv, name=n,
+                                      perfect_iv=ch.perfect, held_item=h)
+                       for n, lv, h in leader_mons(ch)]
 
         # intro
-        time_txt = " ".join(f"{POKEDEX.by_name(n).name} Nv{lv}" for n, lv in ch.team)
+        time_txt = " ".join(f"{POKEDEX.by_name(n).name} Nv{lv}"
+                            + ("✨" if h else "") for n, lv, h in leader_mons(ch))
         intro = discord.Embed(
             title=f"{ch.emoji} {ch.name}",
             description=(f"**{ch.leader}** aceitou seu desafio!\n"
